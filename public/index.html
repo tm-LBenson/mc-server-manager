@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    />
+    <title>Bedrock Server Control</title>
+    <style>
+      html,
+      body {
+        font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        background: #0b1220;
+        color: #e6edf3;
+        margin: 0;
+      }
+      .wrap {
+        max-width: 980px;
+        margin: 40px auto;
+        padding: 24px;
+        border: 1px solid #22304a;
+        border-radius: 14px;
+        background: #0f172a;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-weight: 700;
+        font-size: 24px;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 14px 0;
+      }
+      input {
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid #2b3b5c;
+        background: #0b1220;
+        color: #e6edf3;
+      }
+      button {
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid #2b3b5c;
+        background: #1e293b;
+        color: #e6edf3;
+        cursor: pointer;
+      }
+      button:hover {
+        filter: brightness(1.1);
+      }
+      .pill {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid #2b3b5c;
+        background: #111827;
+      }
+      pre {
+        background: #0b1220;
+        border: 1px solid #22304a;
+        padding: 10px;
+        border-radius: 10px;
+        overflow: auto;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 10px;
+        align-items: center;
+      }
+      .muted {
+        opacity: 0.8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Bedrock Server Control</h1>
+      <div
+        id="status"
+        class="muted"
+      >
+        loading…
+      </div>
+
+      <div class="row">
+        <input
+          id="targetInput"
+          placeholder="container name or ID"
+          style="min-width: 260px"
+        />
+        <button onclick="setTarget()">Use target</button>
+        <button onclick="listContainers()">List containers</button>
+      </div>
+
+      <div class="row">
+        <button onclick="refresh()">Refresh</button>
+        <button onclick="restart()">Restart</button>
+        <button onclick="startC()">Start</button>
+        <button onclick="stopC()">Stop</button>
+        <span class="pill">Set difficulty:</span>
+        <button onclick="setDiff('peaceful')">Peaceful</button>
+        <button onclick="setDiff('easy')">Easy</button>
+        <button onclick="setDiff('normal')">Normal</button>
+        <button onclick="setDiff('hard')">Hard</button>
+      </div>
+
+      <div class="row">
+        <input
+          id="renameInput"
+          placeholder="new container name"
+          style="min-width: 220px"
+        />
+        <button onclick="renameContainer()">Rename container</button>
+      </div>
+
+      <pre id="details"></pre>
+
+      <h3>Logs</h3>
+      <div class="row">
+        <input
+          id="logLines"
+          value="200"
+          style="width: 100px"
+        />
+        <button onclick="showLogs()">Refresh logs</button>
+      </div>
+      <pre
+        id="logs"
+        style="max-height: 360px"
+      ></pre>
+    </div>
+
+    <script>
+      async function call(url, method = "GET", body) {
+        const r = await fetch(url, {
+          method,
+          headers: body ? { "Content-Type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const text = await r.text();
+        try {
+          return JSON.parse(text);
+        } catch {
+          return { raw: text };
+        }
+      }
+      async function refresh() {
+        const t = await call("/api/target");
+        if (t.target) document.getElementById("targetInput").value = t.target;
+        const j = await call("/api/info");
+        if (j.error) {
+          document.getElementById("status").textContent = "Error: " + j.error;
+          document.getElementById("details").textContent = "";
+          return;
+        }
+        document.getElementById("status").innerHTML = `
+    <div class="kv">
+      <div>Target</div><div><strong>${j.target}</strong></div>
+      <div>Container</div><div><strong>${j.name}</strong></div>
+      <div>Status</div><div>${j.state} ${j.running ? "🟢" : "🔴"}</div>
+      <div>Env difficulty</div><div><strong>${
+        j.envDifficulty ?? "n/a"
+      }</strong></div>
+      <div>File difficulty</div><div>${j.fileDifficulty ?? "n/a"}</div>
+    </div>`;
+        document.getElementById("details").textContent = JSON.stringify(
+          j,
+          null,
+          2,
+        );
+      }
+      async function restart() {
+        const name = document.getElementById("targetInput").value || undefined;
+        const j = await call("/api/restart", "POST", { name });
+        if (j.error) alert(j.error);
+        else {
+          await new Promise((r) => setTimeout(r, 800));
+          refresh();
+        }
+      }
+      async function startC() {
+        const name = document.getElementById("targetInput").value || undefined;
+        const j = await call("/api/start", "POST", { name });
+        if (j.error) alert(j.error);
+        else refresh();
+      }
+      async function stopC() {
+        const name = document.getElementById("targetInput").value || undefined;
+        const j = await call("/api/stop", "POST", { name });
+        if (j.error) alert(j.error);
+        else refresh();
+      }
+      async function setDiff(level) {
+        const name = document.getElementById("targetInput").value || undefined;
+        if (!confirm("Change difficulty to " + level + "?")) return;
+        const j = await call("/api/difficulty", "POST", { level, name });
+        if (j.error) alert(j.error);
+        else {
+          await new Promise((r) => setTimeout(r, 1500));
+          refresh();
+        }
+      }
+      async function setTarget() {
+        const name = document.getElementById("targetInput").value.trim();
+        if (!name) return alert("enter a container name or ID");
+        const j = await call("/api/target", "POST", { name });
+        if (j.error) alert(j.error);
+        else refresh();
+      }
+      async function listContainers() {
+        const j = await call("/api/containers");
+        if (j.error) return alert(j.error);
+        const lines = j.containers
+          .map(
+            (c) => `${c.name}  (${c.id.slice(0, 12)})  ${c.image}  ${c.status}`,
+          )
+          .join("\n");
+        document.getElementById("logs").textContent =
+          lines || "No containers found";
+      }
+      async function renameContainer() {
+        const newName = document.getElementById("renameInput").value.trim();
+        const name = document.getElementById("targetInput").value || undefined;
+        if (!newName) return alert("enter a new name");
+        const j = await call("/api/rename", "POST", { name, newName });
+        if (j.error) alert(j.error);
+        else {
+          document.getElementById("targetInput").value = j.target;
+          refresh();
+        }
+      }
+      async function showLogs() {
+        const lines = document.getElementById("logLines").value || "200";
+        const name = document.getElementById("targetInput").value || undefined;
+        const qs = new URLSearchParams({ lines });
+        if (name) qs.set("name", name);
+        const r = await fetch("/api/logs?" + qs.toString());
+        const t = await r.text();
+        document.getElementById("logs").textContent = t;
+      }
+      refresh();
+    </script>
+  </body>
+</html>
