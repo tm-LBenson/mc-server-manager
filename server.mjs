@@ -1,4 +1,3 @@
-// =========================
 import express from "express";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -7,22 +6,92 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const execFileAsync = promisify(execFile);
 
 const run = async (...args) => {
-  const { stdout } = await promisify(execFile)("docker", args);
-  return stdout.toString();
+  try {
+    const { stdout } = await execFileAsync("docker", args, {
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    return stdout.toString();
+  } catch (e) {
+    const parts = [
+      e?.message,
+      e?.stdout?.toString?.(),
+      e?.stderr?.toString?.(),
+    ].filter(Boolean);
+    throw new Error(parts.join("\n").trim());
+  }
 };
 
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.PORT || 8881; // default UI port
-let TARGET = process.env.MC_CONTAINER || "bedrock-server"; // current target container name or ID
+const PORT = process.env.PORT || 8881;
+let TARGET = process.env.MC_CONTAINER || "bedrock-server";
 
 const inspect = async (name = TARGET) => {
   const j = JSON.parse(await run("inspect", name));
   if (!j.length) throw new Error("container not found");
   return j[0];
+};
+
+const envListToObject = (list = []) =>
+  Object.fromEntries(
+    list.map((e) => {
+      const i = e.indexOf("=");
+      return i === -1 ? [e, ""] : [e.slice(0, i), e.slice(i + 1)];
+    }),
+  );
+
+const detectEdition = (image = "") => {
+  const lowered = String(image).toLowerCase();
+  if (lowered.includes("minecraft-bedrock-server")) return "bedrock";
+  if (lowered.includes("minecraft-server")) return "java";
+  return "unknown";
+};
+
+const whitelistFilePath = (edition) =>
+  edition === "bedrock" ? "/data/allowlist.json" : "/data/whitelist.json";
+
+const quoteCommandArg = (value) =>
+  `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+
+const getContainerMeta = async (name = TARGET) => {
+  const i = await inspect(name);
+  const image = i.Config?.Image || "";
+  const edition = detectEdition(image);
+  return { i, image, edition };
+};
+
+const ensureRunning = (containerInspect) => {
+  if (!containerInspect?.State?.Running) {
+    throw new Error("container is not running");
+  }
+};
+
+const sendServerCommand = async (name, containerInspect, args) => {
+  const edition = detectEdition(containerInspect.Config?.Image || "");
+
+  if (edition === "java") {
+    const stdout = await run("exec", name, "rcon-cli", ...args);
+    return { edition, stdout };
+  }
+
+  if (edition === "bedrock") {
+    await run("exec", name, "send-command", ...args);
+    return {
+      edition,
+      stdout: "",
+      note: "Bedrock command output is written to the container logs.",
+    };
+  }
+
+  throw new Error(
+    `unsupported container image for server commands: ${
+      containerInspect.Config?.Image || "unknown"
+    }`,
+  );
 };
 
 const fileDifficulty = async (name = TARGET) => {
@@ -40,13 +109,40 @@ const fileDifficulty = async (name = TARGET) => {
   }
 };
 
-const envListToObject = (list = []) =>
-  Object.fromEntries(
-    list.map((e) => {
-      const i = e.indexOf("=");
-      return i === -1 ? [e, ""] : [e.slice(0, i), e.slice(i + 1)];
-    }),
-  );
+const readWhitelistFile = async (name = TARGET) => {
+  const { i, edition } = await getContainerMeta(name);
+  if (edition === "unknown") {
+    throw new Error(`could not determine server edition for ${i.Config?.Image || "unknown image"}`);
+  }
+
+  const file = whitelistFilePath(edition);
+  let raw = "[]";
+  try {
+    raw = await run(
+      "exec",
+      name,
+      "sh",
+      "-lc",
+      `test -f ${file} && cat ${file} || printf '[]'`,
+    );
+  } catch {
+    raw = "[]";
+  }
+
+  let entries = [];
+  try {
+    entries = JSON.parse(raw || "[]");
+  } catch {
+    entries = [];
+  }
+
+  return {
+    edition,
+    file,
+    entries,
+    raw: raw || "[]",
+  };
+};
 
 // -------- API --------
 app.get("/api/info", async (req, res) => {
@@ -54,11 +150,13 @@ app.get("/api/info", async (req, res) => {
     const target = req.query.name || TARGET;
     const i = await inspect(target);
     const env = envListToObject(i.Config?.Env || []);
+    const edition = detectEdition(i.Config?.Image || "");
     res.json({
       target,
       name: i.Name?.replace(/^\//, ""),
       running: !!i.State?.Running,
       state: i.State?.Status || "unknown",
+      edition,
       envDifficulty: env.DIFFICULTY ?? null,
       fileDifficulty: await fileDifficulty(target),
       ports: i.HostConfig?.PortBindings || {},
@@ -70,6 +168,7 @@ app.get("/api/info", async (req, res) => {
       })),
       restartPolicy: i.HostConfig?.RestartPolicy || {},
       image: i.Config?.Image,
+      whitelistFile: edition === "unknown" ? null : whitelistFilePath(edition),
     });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
@@ -111,10 +210,11 @@ app.post("/api/difficulty", async (req, res) => {
   try {
     const target = req.body?.name || TARGET;
     const level = String(req.body?.level || "").toLowerCase();
-    if (!["peaceful", "easy", "normal", "hard"].includes(level))
+    if (!["peaceful", "easy", "normal", "hard"].includes(level)) {
       return res
         .status(400)
         .json({ error: "level must be peaceful|easy|normal|hard" });
+    }
 
     const i = await inspect(target);
 
@@ -129,8 +229,8 @@ app.post("/api/difficulty", async (req, res) => {
     for (const key of Object.keys(pb)) {
       const binds = pb[key];
       if (!binds || !binds.length) continue;
-      const host = binds[0].HostPort; // first mapping
-      portFlags.push("-p", `${host}:${key}`); // key includes /udp if needed
+      const host = binds[0].HostPort;
+      portFlags.push("-p", `${host}:${key}`);
     }
 
     const volFlags = [];
@@ -142,7 +242,7 @@ app.post("/api/difficulty", async (req, res) => {
 
     const envFlags = env.flatMap((e) => ["-e", e]);
     const restartName = i.HostConfig?.RestartPolicy?.Name || "unless-stopped";
-    const image = i.Config?.Image || "itzg/minecraft-bedrock-server:latest";
+    const image = i.Config?.Image || "itzg/minecraft-server:latest";
     const name = i.Name?.replace(/^\//, "") || target;
 
     try {
@@ -165,8 +265,126 @@ app.post("/api/difficulty", async (req, res) => {
       image,
     );
 
-    TARGET = name; // keep current target
+    TARGET = name;
     res.json({ ok: true, newDifficulty: level, target: TARGET });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+app.get("/api/whitelist", async (req, res) => {
+  try {
+    const name = req.query.name || TARGET;
+    res.json(await readWhitelistFile(name));
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+app.post("/api/whitelist/enable", async (req, res) => {
+  try {
+    const name = req.body?.name || TARGET;
+    const enabled = req.body?.enabled !== false;
+    const { i, edition } = await getContainerMeta(name);
+    ensureRunning(i);
+
+    const command =
+      edition === "bedrock"
+        ? ["allowlist", enabled ? "on" : "off"]
+        : ["whitelist", enabled ? "on" : "off"];
+
+    const result = await sendServerCommand(name, i, command);
+    const whitelist = await readWhitelistFile(name).catch(() => null);
+
+    res.json({
+      ok: true,
+      edition,
+      enabled,
+      stdout: result.stdout || null,
+      note: result.note || null,
+      whitelist,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+app.post("/api/whitelist/add", async (req, res) => {
+  try {
+    const name = req.body?.name || TARGET;
+    const player = String(req.body?.player || "").trim();
+    const autoEnable = req.body?.autoEnable !== false;
+    if (!player) return res.status(400).json({ error: "player required" });
+
+    const { i, edition } = await getContainerMeta(name);
+    ensureRunning(i);
+
+    if (autoEnable) {
+      await sendServerCommand(
+        name,
+        i,
+        edition === "bedrock" ? ["allowlist", "on"] : ["whitelist", "on"],
+      );
+    }
+
+    const playerArg = edition === "bedrock" && /\s/.test(player)
+      ? quoteCommandArg(player)
+      : player;
+
+    const result = await sendServerCommand(
+      name,
+      i,
+      edition === "bedrock"
+        ? ["allowlist", "add", playerArg]
+        : ["whitelist", "add", playerArg],
+    );
+
+    const whitelist = await readWhitelistFile(name).catch(() => null);
+
+    res.json({
+      ok: true,
+      edition,
+      player,
+      stdout: result.stdout || null,
+      note: result.note || null,
+      whitelist,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e) });
+  }
+});
+
+app.post("/api/whitelist/remove", async (req, res) => {
+  try {
+    const name = req.body?.name || TARGET;
+    const player = String(req.body?.player || "").trim();
+    if (!player) return res.status(400).json({ error: "player required" });
+
+    const { i, edition } = await getContainerMeta(name);
+    ensureRunning(i);
+
+    const playerArg = edition === "bedrock" && /\s/.test(player)
+      ? quoteCommandArg(player)
+      : player;
+
+    const result = await sendServerCommand(
+      name,
+      i,
+      edition === "bedrock"
+        ? ["allowlist", "remove", playerArg]
+        : ["whitelist", "remove", playerArg],
+    );
+
+    const whitelist = await readWhitelistFile(name).catch(() => null);
+
+    res.json({
+      ok: true,
+      edition,
+      player,
+      stdout: result.stdout || null,
+      note: result.note || null,
+      whitelist,
+    });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
   }
@@ -178,7 +396,7 @@ app.post("/api/target", async (req, res) => {
   try {
     const name = String(req.body?.name || "").trim();
     if (!name) return res.status(400).json({ error: "name required" });
-    await inspect(name); // throws if not found
+    await inspect(name);
     TARGET = name;
     res.json({ ok: true, target: TARGET });
   } catch (e) {
@@ -234,10 +452,7 @@ app.get("/api/logs", async (req, res) => {
     const out = await run("logs", "--tail", String(lines), name);
     res.type("text/plain").send(out);
   } catch (e) {
-    res
-      .status(500)
-      .type("text/plain")
-      .send(String(e.message || e));
+    res.status(500).type("text/plain").send(String(e.message || e));
   }
 });
 
