@@ -15,11 +15,7 @@ const run = async (...args) => {
     });
     return stdout.toString();
   } catch (e) {
-    const parts = [
-      e?.message,
-      e?.stdout?.toString?.(),
-      e?.stderr?.toString?.(),
-    ].filter(Boolean);
+    const parts = [e?.message, e?.stdout?.toString?.(), e?.stderr?.toString?.()].filter(Boolean);
     throw new Error(parts.join("\n").trim());
   }
 };
@@ -28,7 +24,7 @@ const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 8881;
-let TARGET = process.env.MC_CONTAINER || "bedrock-server";
+let TARGET = process.env.MC_CONTAINER || "minecraft-java";
 
 const inspect = async (name = TARGET) => {
   const j = JSON.parse(await run("inspect", name));
@@ -51,11 +47,9 @@ const detectEdition = (image = "") => {
   return "unknown";
 };
 
-const whitelistFilePath = (edition) =>
-  edition === "bedrock" ? "/data/allowlist.json" : "/data/whitelist.json";
+const whitelistFilePath = (edition) => (edition === "bedrock" ? "/data/allowlist.json" : "/data/whitelist.json");
 
-const quoteCommandArg = (value) =>
-  `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+const quoteCommandArg = (value) => `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
 const getContainerMeta = async (name = TARGET) => {
   const i = await inspect(name);
@@ -87,22 +81,12 @@ const sendServerCommand = async (name, containerInspect, args) => {
     };
   }
 
-  throw new Error(
-    `unsupported container image for server commands: ${
-      containerInspect.Config?.Image || "unknown"
-    }`,
-  );
+  throw new Error(`unsupported container image for server commands: ${containerInspect.Config?.Image || "unknown"}`);
 };
 
 const fileDifficulty = async (name = TARGET) => {
   try {
-    const out = await run(
-      "exec",
-      name,
-      "sh",
-      "-lc",
-      "grep -E '^difficulty=' /data/server.properties | head -n1 | cut -d= -f2",
-    );
+    const out = await run("exec", name, "sh", "-lc", "grep -E '^difficulty=' /data/server.properties | head -n1 | cut -d= -f2");
     return out.trim() || null;
   } catch {
     return null;
@@ -118,13 +102,7 @@ const readWhitelistFile = async (name = TARGET) => {
   const file = whitelistFilePath(edition);
   let raw = "[]";
   try {
-    raw = await run(
-      "exec",
-      name,
-      "sh",
-      "-lc",
-      `test -f ${file} && cat ${file} || printf '[]'`,
-    );
+    raw = await run("exec", name, "sh", "-lc", `test -f ${file} && cat ${file} || printf '[]'`);
   } catch {
     raw = "[]";
   }
@@ -211,16 +189,12 @@ app.post("/api/difficulty", async (req, res) => {
     const target = req.body?.name || TARGET;
     const level = String(req.body?.level || "").toLowerCase();
     if (!["peaceful", "easy", "normal", "hard"].includes(level)) {
-      return res
-        .status(400)
-        .json({ error: "level must be peaceful|easy|normal|hard" });
+      return res.status(400).json({ error: "level must be peaceful|easy|normal|hard" });
     }
 
     const i = await inspect(target);
 
-    const env = (i.Config?.Env || []).filter(
-      (e) => !e.startsWith("DIFFICULTY="),
-    );
+    const env = (i.Config?.Env || []).filter((e) => !e.startsWith("DIFFICULTY="));
     env.push(`DIFFICULTY=${level}`);
     if (!env.some((e) => e.startsWith("EULA="))) env.push("EULA=TRUE");
 
@@ -252,18 +226,7 @@ app.post("/api/difficulty", async (req, res) => {
       await run("rm", "-f", name);
     } catch {}
 
-    await run(
-      "run",
-      "-d",
-      "--name",
-      name,
-      ...portFlags,
-      ...volFlags,
-      ...envFlags,
-      "--restart",
-      restartName,
-      image,
-    );
+    await run("run", "-d", "--name", name, ...portFlags, ...volFlags, ...envFlags, "--restart", restartName, image);
 
     TARGET = name;
     res.json({ ok: true, newDifficulty: level, target: TARGET });
@@ -288,10 +251,7 @@ app.post("/api/whitelist/enable", async (req, res) => {
     const { i, edition } = await getContainerMeta(name);
     ensureRunning(i);
 
-    const command =
-      edition === "bedrock"
-        ? ["allowlist", enabled ? "on" : "off"]
-        : ["whitelist", enabled ? "on" : "off"];
+    const command = edition === "bedrock" ? ["allowlist", enabled ? "on" : "off"] : ["whitelist", enabled ? "on" : "off"];
 
     const result = await sendServerCommand(name, i, command);
     const whitelist = await readWhitelistFile(name).catch(() => null);
@@ -320,24 +280,12 @@ app.post("/api/whitelist/add", async (req, res) => {
     ensureRunning(i);
 
     if (autoEnable) {
-      await sendServerCommand(
-        name,
-        i,
-        edition === "bedrock" ? ["allowlist", "on"] : ["whitelist", "on"],
-      );
+      await sendServerCommand(name, i, edition === "bedrock" ? ["allowlist", "on"] : ["whitelist", "on"]);
     }
 
-    const playerArg = edition === "bedrock" && /\s/.test(player)
-      ? quoteCommandArg(player)
-      : player;
+    const playerArg = edition === "bedrock" && /\s/.test(player) ? quoteCommandArg(player) : player;
 
-    const result = await sendServerCommand(
-      name,
-      i,
-      edition === "bedrock"
-        ? ["allowlist", "add", playerArg]
-        : ["whitelist", "add", playerArg],
-    );
+    const result = await sendServerCommand(name, i, edition === "bedrock" ? ["allowlist", "add", playerArg] : ["whitelist", "add", playerArg]);
 
     const whitelist = await readWhitelistFile(name).catch(() => null);
 
@@ -363,17 +311,9 @@ app.post("/api/whitelist/remove", async (req, res) => {
     const { i, edition } = await getContainerMeta(name);
     ensureRunning(i);
 
-    const playerArg = edition === "bedrock" && /\s/.test(player)
-      ? quoteCommandArg(player)
-      : player;
+    const playerArg = edition === "bedrock" && /\s/.test(player) ? quoteCommandArg(player) : player;
 
-    const result = await sendServerCommand(
-      name,
-      i,
-      edition === "bedrock"
-        ? ["allowlist", "remove", playerArg]
-        : ["whitelist", "remove", playerArg],
-    );
+    const result = await sendServerCommand(name, i, edition === "bedrock" ? ["allowlist", "remove", playerArg] : ["whitelist", "remove", playerArg]);
 
     const whitelist = await readWhitelistFile(name).catch(() => null);
 
@@ -407,12 +347,7 @@ app.post("/api/target", async (req, res) => {
 // list containers
 app.get("/api/containers", async (_req, res) => {
   try {
-    const out = await run(
-      "ps",
-      "-a",
-      "--format",
-      "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}",
-    );
+    const out = await run("ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}");
     const rows = out
       .trim()
       .split(/\r?\n/)
@@ -444,24 +379,20 @@ app.post("/api/rename", async (req, res) => {
 // logs
 app.get("/api/logs", async (req, res) => {
   const name = req.query.name || TARGET;
-  const lines = Math.max(
-    1,
-    Math.min(5000, parseInt(req.query.lines || "200", 10) || 200),
-  );
+  const lines = Math.max(1, Math.min(5000, parseInt(req.query.lines || "200", 10) || 200));
   try {
     const out = await run("logs", "--tail", String(lines), name);
     res.type("text/plain").send(out);
   } catch (e) {
-    res.status(500).type("text/plain").send(String(e.message || e));
+    res
+      .status(500)
+      .type("text/plain")
+      .send(String(e.message || e));
   }
 });
 
 // serve static UI
 app.use(express.static(path.join(__dirname, "public")));
-app.get("/", (_req, res) =>
-  res.sendFile(path.join(__dirname, "public", "index.html")),
-);
+app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
-app.listen(PORT, () =>
-  console.log(`UI: http://localhost:${PORT}  (target: ${TARGET})`),
-);
+app.listen(PORT, () => console.log(`UI: http://localhost:${PORT}  (target: ${TARGET})`));
