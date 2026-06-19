@@ -1185,27 +1185,38 @@
         el.whitelistTable.replaceChildren(table);
       }
 
+      function selectContainer(container) {
+        if (!container) return;
+        el.targetInput.value = container.name;
+        el.serverContainerInput.value = container.name;
+        el.containerSelect.value = container.name;
+      }
+
       function renderContainers(containers = []) {
         el.containerSelect.replaceChildren(new Option("Known containers", ""));
         containers.forEach((container) => {
-          const option = new Option(`${container.name} - ${container.status}`, container.name);
+          const edition = container.edition && container.edition !== "unknown" ? `${container.edition} - ` : "";
+          const option = new Option(`${container.name} - ${edition}${container.status}`, container.name);
           el.containerSelect.add(option);
         });
 
         if (!containers.length) {
           const empty = document.createElement("div");
           empty.className = "empty";
-          empty.textContent = "No containers found";
+          empty.textContent = "No Java or Bedrock Minecraft containers found";
           el.containersWrap.replaceChildren(empty);
           el.containersWrap.classList.remove("hidden");
-          return;
+          return null;
         }
+
+        const selected = containers.find((container) => container.name === targetName()) || containers[0];
+        selectContainer(selected);
 
         const table = document.createElement("table");
         const thead = document.createElement("thead");
         const tbody = document.createElement("tbody");
         const header = document.createElement("tr");
-        ["Name", "Image", "Status"].forEach((text) => {
+        ["Name", "Edition", "Image", "Status"].forEach((text) => {
           const th = document.createElement("th");
           th.textContent = text;
           header.append(th);
@@ -1216,10 +1227,9 @@
           const row = document.createElement("tr");
           row.tabIndex = 0;
           row.addEventListener("click", () => {
-            el.targetInput.value = container.name;
-            el.serverContainerInput.value = container.name;
+            selectContainer(container);
           });
-          [container.name, container.image, container.status].forEach((text) => {
+          [container.name, container.edition, container.image, container.status].forEach((text) => {
             const td = document.createElement("td");
             td.textContent = text || "-";
             row.append(td);
@@ -1230,6 +1240,7 @@
         table.append(thead, tbody);
         el.containersWrap.replaceChildren(table);
         el.containersWrap.classList.remove("hidden");
+        return selected;
       }
 
       async function loadWhitelist() {
@@ -1242,23 +1253,49 @@
         }
       }
 
+      async function loadInfo() {
+        const info = await api(endpointWithTarget("/api/info"));
+        state.activeServerId = info.serverId || selectedServerId() || state.activeServerId;
+        if (state.activeServerId) el.serverSelect.value = state.activeServerId;
+        state.activeTarget = info.target || "";
+        state.info = info;
+        el.targetInput.value = state.activeTarget;
+        el.serverContainerInput.value = state.activeTarget;
+        renderStatus(info);
+        renderDetails(info);
+        loadWhitelist();
+        return info;
+      }
+
+      async function defaultToFirstContainer() {
+        const data = await api("/api/containers");
+        const containers = data.containers || [];
+        const selected = renderContainers(containers);
+        if (!selected) return false;
+
+        const target = await post("/api/target", { serverId: selectedServerId(), name: selected.name }, 35000);
+        state.activeServerId = target.serverId || state.activeServerId;
+        state.activeTarget = target.target || selected.name;
+        if (state.activeServerId) el.serverSelect.value = state.activeServerId;
+        el.targetInput.value = state.activeTarget;
+        el.serverContainerInput.value = state.activeTarget;
+        await loadInfo();
+        setMessage(el.targetMessage, `Defaulted to ${selected.name}`, "success");
+        return true;
+      }
+
       async function refresh() {
         return withBusy("refresh", async () => {
           setMessage(el.targetMessage, "Refreshing...");
           try {
             await loadServers();
-            const info = await api(endpointWithTarget("/api/info"));
-            state.activeServerId = info.serverId || selectedServerId() || state.activeServerId;
-            if (state.activeServerId) el.serverSelect.value = state.activeServerId;
-            state.activeTarget = info.target || "";
-            state.info = info;
-            el.targetInput.value = state.activeTarget;
-            el.serverContainerInput.value = state.activeTarget;
-            renderStatus(info);
-            renderDetails(info);
+            await loadInfo();
             setMessage(el.targetMessage, "Current");
-            loadWhitelist();
           } catch (error) {
+            try {
+              const recovered = await defaultToFirstContainer();
+              if (recovered) return;
+            } catch {}
             state.info = null;
             setText(el.statePill, "Error");
             el.stateDot.classList.remove("running");
@@ -1270,11 +1307,13 @@
 
       async function listContainers() {
         return withBusy("containers", async () => {
-          setMessage(el.targetMessage, "Loading containers...");
+          setMessage(el.targetMessage, "Loading Minecraft containers...");
           try {
             const data = await api("/api/containers");
-            renderContainers(data.containers || []);
-            setMessage(el.targetMessage, `${(data.containers || []).length} containers loaded`, "success");
+            const selected = renderContainers(data.containers || []);
+            const count = (data.containers || []).length;
+            const suffix = selected ? `; ${selected.name} selected` : "";
+            setMessage(el.targetMessage, `${count} Minecraft container${count === 1 ? "" : "s"} loaded${suffix}`, "success");
           } catch (error) {
             setMessage(el.targetMessage, error.message, "error");
           }
@@ -1521,7 +1560,8 @@
       el.saveServerBtn.addEventListener("click", saveServer);
       el.deleteServerBtn.addEventListener("click", deleteServer);
       el.containerSelect.addEventListener("change", () => {
-        if (el.containerSelect.value) el.targetInput.value = el.containerSelect.value;
+        if (!el.containerSelect.value) return;
+        selectContainer({ name: el.containerSelect.value });
       });
       el.targetInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter") useTarget();

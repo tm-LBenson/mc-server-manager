@@ -310,6 +310,8 @@ const detectEdition = (image = "") => {
   return "unknown";
 };
 
+const isManagedMinecraftImage = (image = "") => detectEdition(image) !== "unknown";
+
 const whitelistFilePath = (edition) => (edition === "bedrock" ? "/data/allowlist.json" : "/data/whitelist.json");
 
 const quoteCommandArg = (value) => `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -431,6 +433,19 @@ const updateServerContainer = async (serverId, container) => {
   server.container = container;
   await saveServers();
   return server;
+};
+
+const listManagedContainers = async (server) => {
+  const out = await run(server, "ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}");
+  return out
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const [id, name, image, ...rest] = line.split(/\t/);
+      return { id, name, image, status: rest.join(" "), edition: detectEdition(image) };
+    })
+    .filter((container) => isManagedMinecraftImage(container.image));
 };
 
 // -------- API --------
@@ -754,16 +769,8 @@ app.post("/api/target", async (req, res) => {
 app.get("/api/containers", async (req, res) => {
   try {
     const server = resolveServer(req.query);
-    const out = await run(server, "ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}");
-    const rows = out
-      .trim()
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((line) => {
-        const [id, name, image, ...rest] = line.split(/\t/);
-        return { id, name, image, status: rest.join(" ") };
-      });
-    res.json({ serverId: server.id, hostLabel: hostLabel(server), containers: rows });
+    const rows = await listManagedContainers(server);
+    res.json({ serverId: server.id, hostLabel: hostLabel(server), defaultContainer: rows[0] || null, containers: rows });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
   }
