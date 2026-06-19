@@ -527,6 +527,53 @@
         display: none !important;
       }
 
+      .modal {
+        width: min(440px, calc(100% - 32px));
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        color: var(--text);
+        box-shadow: var(--shadow);
+        padding: 0;
+      }
+
+      .modal::backdrop {
+        background: rgba(5, 8, 6, 0.72);
+        backdrop-filter: blur(2px);
+      }
+
+      .modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--border);
+        padding: 14px 16px;
+      }
+
+      .modal-body {
+        color: var(--muted);
+        line-height: 1.5;
+        padding: 16px;
+      }
+
+      .modal-body p {
+        margin: 0;
+      }
+
+      .modal-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 10px;
+        border-top: 1px solid var(--border);
+        padding: 14px 16px;
+      }
+
+      .modal-actions .btn {
+        min-width: 100px;
+      }
+
       @media (max-width: 900px) {
         .topbar {
           display: grid;
@@ -807,6 +854,19 @@
       </section>
     </main>
 
+    <dialog id="confirmDialog" class="modal" aria-labelledby="confirmDialogTitle">
+      <div class="modal-header">
+        <h2 id="confirmDialogTitle">Confirm action</h2>
+      </div>
+      <div class="modal-body">
+        <p id="confirmDialogMessage"></p>
+      </div>
+      <div class="modal-actions">
+        <button id="confirmCancelBtn" class="btn subtle" type="button">Cancel</button>
+        <button id="confirmAcceptBtn" class="btn primary" type="button">Confirm</button>
+      </div>
+    </dialog>
+
     <script>
       const state = {
         activeTarget: "",
@@ -821,6 +881,11 @@
         addPlayerBtn: document.getElementById("addPlayerBtn"),
         containerSelect: document.getElementById("containerSelect"),
         containersWrap: document.getElementById("containersWrap"),
+        confirmAcceptBtn: document.getElementById("confirmAcceptBtn"),
+        confirmCancelBtn: document.getElementById("confirmCancelBtn"),
+        confirmDialog: document.getElementById("confirmDialog"),
+        confirmDialogMessage: document.getElementById("confirmDialogMessage"),
+        confirmDialogTitle: document.getElementById("confirmDialogTitle"),
         detailsList: document.getElementById("detailsList"),
         detailsRaw: document.getElementById("detailsRaw"),
         difficultyDetail: document.getElementById("difficultyDetail"),
@@ -898,6 +963,30 @@
       function setMessage(node, message = "", kind = "") {
         node.textContent = message;
         node.className = "status-line" + (kind ? ` ${kind}` : "");
+      }
+
+      let confirmDialogResolve = null;
+
+      function settleConfirmDialog(confirmed) {
+        if (!confirmDialogResolve) return;
+        const resolve = confirmDialogResolve;
+        confirmDialogResolve = null;
+        if (el.confirmDialog.open) el.confirmDialog.close(confirmed ? "confirm" : "cancel");
+        resolve(confirmed);
+      }
+
+      function confirmAction({ title, message, confirmText = "Confirm", danger = false }) {
+        return new Promise((resolve) => {
+          if (confirmDialogResolve) settleConfirmDialog(false);
+          confirmDialogResolve = resolve;
+          el.confirmDialogTitle.textContent = title;
+          el.confirmDialogMessage.textContent = message;
+          el.confirmAcceptBtn.textContent = confirmText;
+          el.confirmAcceptBtn.classList.toggle("danger", danger);
+          el.confirmAcceptBtn.classList.toggle("primary", !danger);
+          el.confirmDialog.showModal();
+          el.confirmCancelBtn.focus();
+        });
       }
 
       function targetName() {
@@ -1380,7 +1469,13 @@
       async function deleteServer() {
         const server = getCurrentServer();
         if (!server) return;
-        if (!confirm(`Delete ${server.label}?`)) return;
+        const confirmed = await confirmAction({
+          title: "Delete server target",
+          message: `Remove ${server.label} from this control panel? This does not delete the Minecraft container.`,
+          confirmText: "Delete",
+          danger: true,
+        });
+        if (!confirmed) return;
 
         return withBusy("delete-server", async () => {
           setMessage(el.targetMessage, "Deleting server...");
@@ -1421,7 +1516,12 @@
       }
 
       async function setDifficulty(level) {
-        if (!confirm(`Change difficulty to ${level}?`)) return;
+        const confirmed = await confirmAction({
+          title: "Change difficulty",
+          message: `Change difficulty to ${level}? This recreates the Minecraft container with the updated difficulty setting.`,
+          confirmText: "Change",
+        });
+        if (!confirmed) return;
 
         return withBusy("difficulty", async () => {
           setMessage(el.operationMessage, `Changing difficulty to ${level}...`);
@@ -1438,7 +1538,12 @@
 
       async function setPvp(enabled) {
         const verb = enabled ? "enable" : "disable";
-        if (!confirm(`This will ${verb} PVP and restart the container. Continue?`)) return;
+        const confirmed = await confirmAction({
+          title: `${enabled ? "Enable" : "Disable"} PVP`,
+          message: `This will ${verb} PVP in server.properties and restart the Minecraft container.`,
+          confirmText: enabled ? "Enable" : "Disable",
+        });
+        if (!confirmed) return;
 
         return withBusy("pvp", async () => {
           setMessage(el.operationMessage, `${enabled ? "Enabling" : "Disabling"} PVP...`);
@@ -1537,6 +1642,12 @@
       }
 
       el.refreshBtn.addEventListener("click", refresh);
+      el.confirmCancelBtn.addEventListener("click", () => settleConfirmDialog(false));
+      el.confirmAcceptBtn.addEventListener("click", () => settleConfirmDialog(true));
+      el.confirmDialog.addEventListener("close", () => settleConfirmDialog(false));
+      el.confirmDialog.addEventListener("click", (event) => {
+        if (event.target === el.confirmDialog) settleConfirmDialog(false);
+      });
       el.logoutBtn.addEventListener("click", async () => {
         await fetch("/api/logout", { method: "POST" }).catch(() => null);
         window.location.href = "/login";
