@@ -668,6 +668,10 @@ app.get("/api/logs", async (req, res) => {
   }
 });
 
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
 // serve static UI
 app.use(express.static(path.join(__dirname, "public")));
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
