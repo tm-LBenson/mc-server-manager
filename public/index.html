@@ -1,302 +1,1430 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Minecraft Server Control</title>
     <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101311;
+        --surface: #171c19;
+        --surface-2: #1f261f;
+        --surface-3: #252d26;
+        --border: #344034;
+        --border-strong: #4b5c4b;
+        --text: #edf4ed;
+        --muted: #aebbae;
+        --green: #49bf73;
+        --green-soft: rgba(73, 191, 115, 0.16);
+        --amber: #d99a36;
+        --amber-soft: rgba(217, 154, 54, 0.16);
+        --red: #df655b;
+        --red-soft: rgba(223, 101, 91, 0.16);
+        --blue: #6ea7d8;
+        --blue-soft: rgba(110, 167, 216, 0.14);
+        --shadow: 0 18px 54px rgba(0, 0, 0, 0.28);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
       html,
       body {
-        font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-        background: #0b1220;
-        color: #e6edf3;
+        min-height: 100%;
+      }
+
+      body {
         margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-size: 15px;
       }
-      .wrap {
-        max-width: 980px;
-        margin: 40px auto;
-        padding: 24px;
-        border: 1px solid #22304a;
-        border-radius: 14px;
-        background: #0f172a;
+
+      button,
+      input,
+      select {
+        font: inherit;
       }
-      h1,
-      h3 {
-        margin-top: 0;
-      }
-      .row {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin: 14px 0;
-      }
-      input {
-        padding: 8px;
-        border-radius: 8px;
-        border: 1px solid #2b3b5c;
-        background: #0b1220;
-        color: #e6edf3;
-      }
+
       button {
-        padding: 10px 14px;
-        border-radius: 10px;
-        border: 1px solid #2b3b5c;
-        background: #1e293b;
-        color: #e6edf3;
-        cursor: pointer;
+        min-height: 40px;
       }
-      button:hover {
-        filter: brightness(1.1);
+
+      .app-shell {
+        width: min(1180px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 36px;
       }
-      .pill {
-        display: inline-block;
-        padding: 4px 10px;
-        border-radius: 999px;
-        border: 1px solid #2b3b5c;
-        background: #111827;
+
+      .topbar {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 20px;
+        padding-bottom: 18px;
       }
-      pre {
-        background: #0b1220;
-        border: 1px solid #22304a;
-        padding: 10px;
-        border-radius: 10px;
-        overflow: auto;
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
       }
-      .kv {
+
+      .brand-mark {
         display: grid;
-        grid-template-columns: 180px 1fr;
+        width: 42px;
+        height: 42px;
+        flex: 0 0 42px;
+        grid-template-columns: repeat(3, 1fr);
+        grid-template-rows: repeat(3, 1fr);
+        overflow: hidden;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        background: #263021;
+        box-shadow: var(--shadow);
+      }
+
+      .brand-mark span:nth-child(1),
+      .brand-mark span:nth-child(3),
+      .brand-mark span:nth-child(5) {
+        background: #4f8b43;
+      }
+
+      .brand-mark span:nth-child(2),
+      .brand-mark span:nth-child(7) {
+        background: #7a6545;
+      }
+
+      .brand-mark span:nth-child(4),
+      .brand-mark span:nth-child(6),
+      .brand-mark span:nth-child(8),
+      .brand-mark span:nth-child(9) {
+        background: #31382f;
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        font-size: clamp(1.35rem, 2vw, 1.85rem);
+        line-height: 1.1;
+      }
+
+      h2 {
+        font-size: 0.98rem;
+        font-weight: 700;
+      }
+
+      .subtitle {
+        margin: 4px 0 0;
+        color: var(--muted);
+      }
+
+      .top-meta {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .pill {
+        display: inline-flex;
+        min-height: 30px;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--muted);
+        padding: 5px 10px;
+        white-space: nowrap;
+      }
+
+      .pill strong {
+        color: var(--text);
+        font-weight: 700;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--muted);
+      }
+
+      .dot.running {
+        background: var(--green);
+        box-shadow: 0 0 0 4px var(--green-soft);
+      }
+
+      .dot.stopped {
+        background: var(--red);
+        box-shadow: 0 0 0 4px var(--red-soft);
+      }
+
+      .panel {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--border);
+        padding: 14px 16px;
+      }
+
+      .panel-body {
+        padding: 16px;
+      }
+
+      .control-strip {
+        display: grid;
+        grid-template-columns: minmax(180px, 0.75fr) minmax(220px, 1fr) minmax(180px, 260px) auto auto;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .grid.two {
+        grid-template-columns: minmax(0, 1fr) minmax(330px, 0.52fr);
+      }
+
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+      }
+
+      .metric {
+        min-height: 92px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface-2);
+        padding: 13px;
+      }
+
+      .metric-label {
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .metric-value {
+        margin-top: 9px;
+        overflow-wrap: anywhere;
+        color: var(--text);
+        font-size: 1rem;
+        font-weight: 750;
+        line-height: 1.25;
+      }
+
+      .metric-detail {
+        margin-top: 7px;
+        overflow-wrap: anywhere;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .form-row {
+        display: flex;
+        flex-wrap: wrap;
         gap: 10px;
         align-items: center;
       }
-      .muted {
-        opacity: 0.85;
+
+      .form-row + .form-row {
+        margin-top: 12px;
       }
-      .section {
-        margin-top: 24px;
+
+      .server-editor {
+        margin-top: 16px;
+        border-top: 1px solid var(--border);
+        padding-top: 14px;
+      }
+
+      .connection-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        align-items: end;
+        margin-top: 12px;
+      }
+
+      .connection-grid .wide {
+        grid-column: span 2;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+        min-width: 180px;
+      }
+
+      .field.grow {
+        flex: 1 1 260px;
+      }
+
+      label {
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      input,
+      select {
+        width: 100%;
+        min-height: 40px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #0f140f;
+        color: var(--text);
+        outline: none;
+        padding: 9px 11px;
+      }
+
+      input:focus,
+      select:focus {
+        border-color: var(--green);
+        box-shadow: 0 0 0 3px var(--green-soft);
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        background: var(--surface-3);
+        color: var(--text);
+        cursor: pointer;
+        font-weight: 700;
+        padding: 9px 13px;
+        text-decoration: none;
+        transition:
+          border-color 120ms ease,
+          background 120ms ease,
+          transform 120ms ease;
+      }
+
+      .btn:hover {
+        border-color: var(--green);
+        background: #2a352b;
+      }
+
+      .btn:active {
+        transform: translateY(1px);
+      }
+
+      .btn.primary {
+        border-color: #5ebf7d;
+        background: #26673f;
+      }
+
+      .btn.warning {
+        border-color: #c9903d;
+        background: #6d4d20;
+      }
+
+      .btn.danger {
+        border-color: #c7665f;
+        background: #74332e;
+      }
+
+      .btn.subtle {
+        background: transparent;
+        color: var(--muted);
+      }
+
+      .btn:disabled {
+        cursor: wait;
+        opacity: 0.62;
+      }
+
+      .segmented {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        width: 100%;
+      }
+
+      .segmented .btn {
+        min-width: 0;
+      }
+
+      .segmented .btn[aria-pressed="true"] {
+        border-color: var(--green);
+        background: var(--green-soft);
+        color: #dff8e6;
+      }
+
+      .status-line {
+        min-height: 22px;
+        margin-top: 10px;
+        color: var(--muted);
+      }
+
+      .status-line.error {
+        color: #ffbbb5;
+      }
+
+      .status-line.success {
+        color: #bdf2ce;
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid var(--border);
+        padding: 10px 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      td {
+        overflow-wrap: anywhere;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .empty {
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+        color: var(--muted);
+        padding: 14px;
+      }
+
+      .details-grid {
+        display: grid;
+        grid-template-columns: 150px minmax(0, 1fr);
+        gap: 10px 14px;
+      }
+
+      .details-grid dt {
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .details-grid dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      details {
+        margin-top: 16px;
+      }
+
+      summary {
+        cursor: pointer;
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      pre {
+        margin: 12px 0 0;
+        max-width: 100%;
+        overflow: auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #0b0f0c;
+        color: #dbe7db;
+        font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+        font-size: 0.86rem;
+        line-height: 1.5;
+        padding: 12px;
+        white-space: pre-wrap;
+      }
+
+      #logs {
+        min-height: 320px;
+        max-height: 420px;
+        white-space: pre;
+      }
+
+      .visually-hidden {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      @media (max-width: 900px) {
+        .topbar {
+          display: grid;
+        }
+
+        .top-meta {
+          justify-content: flex-start;
+        }
+
+        .control-strip,
+        .connection-grid,
+        .grid.two,
+        .metrics {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 560px) {
+        .app-shell {
+          width: min(100% - 20px, 1180px);
+          padding-top: 16px;
+        }
+
+        .brand {
+          align-items: flex-start;
+        }
+
+        .brand-mark {
+          width: 36px;
+          height: 36px;
+          flex-basis: 36px;
+        }
+
+        .panel-header,
+        .panel-body {
+          padding: 13px;
+        }
+
+        .segmented {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .details-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .connection-grid .wide {
+          grid-column: auto;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <h1>Minecraft Server Control</h1>
-      <div id="status" class="muted">loading…</div>
-
-      <div class="row">
-        <input id="targetInput" placeholder="container name or ID" style="min-width: 260px" />
-        <button onclick="setTarget()">Use target</button>
-        <button onclick="listContainers()">List containers</button>
-      </div>
-
-      <div class="row">
-        <button onclick="refresh()">Refresh</button>
-        <button onclick="restart()">Restart</button>
-        <button onclick="startC()">Start</button>
-        <button onclick="stopC()">Stop</button>
-        <span class="pill">Set difficulty:</span>
-        <button onclick="setDiff('peaceful')">Peaceful</button>
-        <button onclick="setDiff('easy')">Easy</button>
-        <button onclick="setDiff('normal')">Normal</button>
-        <button onclick="setDiff('hard')">Hard</button>
-      </div>
-
-      <div class="row">
-        <input id="renameInput" placeholder="new container name" style="min-width: 220px" />
-        <button onclick="renameContainer()">Rename container</button>
-      </div>
-
-      <pre id="details"></pre>
-
-      <div class="section">
-        <h3>Whitelist / Allowlist</h3>
-        <div class="row">
-          <input id="playerInput" placeholder="Java username or Bedrock GamerTag" style="min-width: 320px" />
-          <button onclick="enableWhitelist(true)">Enable</button>
-          <button onclick="enableWhitelist(false)">Disable</button>
-          <button onclick="addPlayer()">Add player</button>
-          <button onclick="removePlayer()">Remove player</button>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div>
+            <h1>Minecraft Server Control</h1>
+            <p class="subtitle">Docker-backed Java and Bedrock server manager</p>
+          </div>
         </div>
-        <div id="whitelistNote" class="muted"></div>
-        <pre id="whitelist"></pre>
+        <div class="top-meta" aria-live="polite">
+          <span class="pill"><span id="stateDot" class="dot"></span><strong id="statePill">Loading</strong></span>
+          <span class="pill">Target <strong id="targetPill">-</strong></span>
+          <span class="pill">Edition <strong id="editionPill">-</strong></span>
+          <span class="pill">Host <strong id="hostPill">-</strong></span>
+        </div>
+      </header>
+
+      <section class="panel" aria-labelledby="targetHeading">
+        <div class="panel-header">
+          <h2 id="targetHeading">Target</h2>
+          <button id="refreshBtn" class="btn subtle" type="button">Refresh</button>
+        </div>
+        <div class="panel-body">
+          <div class="control-strip">
+            <label class="visually-hidden" for="serverSelect">Managed server</label>
+            <select id="serverSelect">
+              <option value="">Managed servers</option>
+            </select>
+            <label class="visually-hidden" for="targetInput">Container name or ID</label>
+            <input id="targetInput" autocomplete="off" placeholder="Container name or ID" />
+            <label class="visually-hidden" for="containerSelect">Known containers</label>
+            <select id="containerSelect">
+              <option value="">Known containers</option>
+            </select>
+            <button id="useTargetBtn" class="btn primary" type="button">Use Server</button>
+            <button id="loadContainersBtn" class="btn" type="button">Containers</button>
+          </div>
+          <div id="targetMessage" class="status-line" role="status" aria-live="polite"></div>
+          <div id="containersWrap" class="table-wrap hidden" aria-live="polite"></div>
+          <details class="server-editor">
+            <summary>Server Settings</summary>
+            <div class="connection-grid">
+              <div class="field">
+                <label for="serverLabelInput">Name</label>
+                <input id="serverLabelInput" autocomplete="off" placeholder="Survival" />
+              </div>
+              <div class="field">
+                <label for="serverTypeSelect">Connection</label>
+                <select id="serverTypeSelect">
+                  <option value="local">Local Docker</option>
+                  <option value="ssh">SSH Docker</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="serverContainerInput">Container</label>
+                <input id="serverContainerInput" autocomplete="off" placeholder="minecraft-java" />
+              </div>
+              <div class="field ssh-field">
+                <label for="serverHostInput">Host</label>
+                <input id="serverHostInput" autocomplete="off" placeholder="mc-host.example.com" />
+              </div>
+              <div class="field ssh-field">
+                <label for="serverUserInput">SSH User</label>
+                <input id="serverUserInput" autocomplete="off" placeholder="root" />
+              </div>
+              <div class="field ssh-field">
+                <label for="serverPortInput">SSH Port</label>
+                <input id="serverPortInput" inputmode="numeric" value="22" />
+              </div>
+              <div class="field wide ssh-field">
+                <label for="serverIdentityInput">Identity File</label>
+                <input id="serverIdentityInput" autocomplete="off" placeholder="/home/app/.ssh/id_ed25519" />
+              </div>
+              <div class="field">
+                <label for="serverDockerPathInput">Docker Path</label>
+                <input id="serverDockerPathInput" autocomplete="off" value="docker" />
+              </div>
+              <button id="newServerBtn" class="btn" type="button">New Server</button>
+              <button id="saveServerBtn" class="btn primary" type="button">Save Server</button>
+              <button id="deleteServerBtn" class="btn danger" type="button">Delete</button>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="Server status">
+        <div class="metric">
+          <div class="metric-label">State</div>
+          <div id="stateMetric" class="metric-value">-</div>
+          <div id="uptimeMetric" class="metric-detail">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Difficulty</div>
+          <div id="difficultyMetric" class="metric-value">-</div>
+          <div id="difficultyDetail" class="metric-detail">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Image</div>
+          <div id="imageMetric" class="metric-value">-</div>
+          <div id="restartMetric" class="metric-detail">-</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">List File</div>
+          <div id="whitelistFileMetric" class="metric-value">-</div>
+          <div id="portsMetric" class="metric-detail">-</div>
+        </div>
+      </section>
+
+      <div class="grid two">
+        <section class="panel" aria-labelledby="operationsHeading">
+          <div class="panel-header">
+            <h2 id="operationsHeading">Operations</h2>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <button id="startBtn" class="btn primary" type="button">Start</button>
+              <button id="restartBtn" class="btn warning" type="button">Restart</button>
+              <button id="stopBtn" class="btn danger" type="button">Stop</button>
+            </div>
+            <div class="form-row">
+              <div class="field grow">
+                <label>Difficulty</label>
+                <div class="segmented" role="group" aria-label="Difficulty">
+                  <button class="btn" type="button" data-difficulty="peaceful" aria-pressed="false">Peaceful</button>
+                  <button class="btn" type="button" data-difficulty="easy" aria-pressed="false">Easy</button>
+                  <button class="btn" type="button" data-difficulty="normal" aria-pressed="false">Normal</button>
+                  <button class="btn" type="button" data-difficulty="hard" aria-pressed="false">Hard</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field grow">
+                <label for="renameInput">Container name</label>
+                <input id="renameInput" autocomplete="off" placeholder="New container name" />
+              </div>
+              <button id="renameBtn" class="btn" type="button">Rename</button>
+            </div>
+            <div id="operationMessage" class="status-line" role="status" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="detailsHeading">
+          <div class="panel-header">
+            <h2 id="detailsHeading">Details</h2>
+          </div>
+          <div class="panel-body">
+            <dl id="detailsList" class="details-grid"></dl>
+            <details>
+              <summary>Raw inspect data</summary>
+              <pre id="detailsRaw"></pre>
+            </details>
+          </div>
+        </section>
       </div>
 
-      <div class="section">
-        <h3>Logs</h3>
-        <div class="row">
-          <input id="logLines" value="200" style="width: 100px" />
-          <button onclick="showLogs()">Refresh logs</button>
-        </div>
-        <pre id="logs" style="max-height: 360px"></pre>
+      <div class="grid two" style="margin-top: 16px">
+        <section class="panel" aria-labelledby="whitelistHeading">
+          <div class="panel-header">
+            <h2 id="whitelistHeading">Whitelist / Allowlist</h2>
+            <div class="form-row">
+              <button id="enableWhitelistBtn" class="btn" type="button">Enable</button>
+              <button id="disableWhitelistBtn" class="btn subtle" type="button">Disable</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="field grow">
+                <label for="playerInput">Player</label>
+                <input id="playerInput" autocomplete="off" placeholder="Java username or Bedrock GamerTag" />
+              </div>
+              <button id="addPlayerBtn" class="btn primary" type="button">Add</button>
+              <button id="removePlayerBtn" class="btn danger" type="button">Remove</button>
+            </div>
+            <div id="whitelistMessage" class="status-line" role="status" aria-live="polite"></div>
+            <div id="whitelistTable" class="table-wrap"></div>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="logsHeading">
+          <div class="panel-header">
+            <h2 id="logsHeading">Logs</h2>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="field" style="width: 130px">
+                <label for="logLines">Lines</label>
+                <input id="logLines" inputmode="numeric" value="200" />
+              </div>
+              <button id="logsBtn" class="btn" type="button">Refresh Logs</button>
+            </div>
+            <pre id="logs"></pre>
+          </div>
+        </section>
       </div>
-    </div>
+    </main>
 
     <script>
-      async function call(url, method = "GET", body) {
-        const r = await fetch(url, {
-          method,
-          headers: body ? { "Content-Type": "application/json" } : {},
-          body: body ? JSON.stringify(body) : undefined,
-        });
-        const text = await r.text();
+      const state = {
+        activeTarget: "",
+        activeServerId: "",
+        editingServerId: "",
+        servers: [],
+        info: null,
+        busy: new Set(),
+      };
+
+      const el = {
+        addPlayerBtn: document.getElementById("addPlayerBtn"),
+        containerSelect: document.getElementById("containerSelect"),
+        containersWrap: document.getElementById("containersWrap"),
+        detailsList: document.getElementById("detailsList"),
+        detailsRaw: document.getElementById("detailsRaw"),
+        difficultyDetail: document.getElementById("difficultyDetail"),
+        difficultyMetric: document.getElementById("difficultyMetric"),
+        disableWhitelistBtn: document.getElementById("disableWhitelistBtn"),
+        editionPill: document.getElementById("editionPill"),
+        enableWhitelistBtn: document.getElementById("enableWhitelistBtn"),
+        imageMetric: document.getElementById("imageMetric"),
+        hostPill: document.getElementById("hostPill"),
+        loadContainersBtn: document.getElementById("loadContainersBtn"),
+        logLines: document.getElementById("logLines"),
+        logs: document.getElementById("logs"),
+        logsBtn: document.getElementById("logsBtn"),
+        newServerBtn: document.getElementById("newServerBtn"),
+        operationMessage: document.getElementById("operationMessage"),
+        playerInput: document.getElementById("playerInput"),
+        portsMetric: document.getElementById("portsMetric"),
+        refreshBtn: document.getElementById("refreshBtn"),
+        removePlayerBtn: document.getElementById("removePlayerBtn"),
+        renameBtn: document.getElementById("renameBtn"),
+        renameInput: document.getElementById("renameInput"),
+        restartBtn: document.getElementById("restartBtn"),
+        restartMetric: document.getElementById("restartMetric"),
+        deleteServerBtn: document.getElementById("deleteServerBtn"),
+        saveServerBtn: document.getElementById("saveServerBtn"),
+        serverContainerInput: document.getElementById("serverContainerInput"),
+        serverDockerPathInput: document.getElementById("serverDockerPathInput"),
+        serverHostInput: document.getElementById("serverHostInput"),
+        serverIdentityInput: document.getElementById("serverIdentityInput"),
+        serverLabelInput: document.getElementById("serverLabelInput"),
+        serverPortInput: document.getElementById("serverPortInput"),
+        serverSelect: document.getElementById("serverSelect"),
+        serverTypeSelect: document.getElementById("serverTypeSelect"),
+        serverUserInput: document.getElementById("serverUserInput"),
+        startBtn: document.getElementById("startBtn"),
+        stateDot: document.getElementById("stateDot"),
+        stateMetric: document.getElementById("stateMetric"),
+        statePill: document.getElementById("statePill"),
+        stopBtn: document.getElementById("stopBtn"),
+        targetInput: document.getElementById("targetInput"),
+        targetMessage: document.getElementById("targetMessage"),
+        targetPill: document.getElementById("targetPill"),
+        uptimeMetric: document.getElementById("uptimeMetric"),
+        useTargetBtn: document.getElementById("useTargetBtn"),
+        whitelistFileMetric: document.getElementById("whitelistFileMetric"),
+        whitelistMessage: document.getElementById("whitelistMessage"),
+        whitelistTable: document.getElementById("whitelistTable"),
+      };
+
+      const actionButtons = [
+        el.addPlayerBtn,
+        el.disableWhitelistBtn,
+        el.enableWhitelistBtn,
+        el.loadContainersBtn,
+        el.logsBtn,
+        el.newServerBtn,
+        el.refreshBtn,
+        el.removePlayerBtn,
+        el.renameBtn,
+        el.restartBtn,
+        el.deleteServerBtn,
+        el.saveServerBtn,
+        el.startBtn,
+        el.stopBtn,
+        el.useTargetBtn,
+        ...document.querySelectorAll("[data-difficulty]"),
+      ];
+
+      function setText(node, value) {
+        node.textContent = value == null || value === "" ? "-" : String(value);
+      }
+
+      function setMessage(node, message = "", kind = "") {
+        node.textContent = message;
+        node.className = "status-line" + (kind ? ` ${kind}` : "");
+      }
+
+      function targetName() {
+        return el.targetInput.value.trim() || state.activeTarget || undefined;
+      }
+
+      function selectedServerId() {
+        return el.serverSelect.value || state.activeServerId || undefined;
+      }
+
+      function currentRequestTarget() {
+        return {
+          serverId: selectedServerId(),
+          name: targetName(),
+        };
+      }
+
+      function targetQuery() {
+        const serverId = selectedServerId();
+        const name = targetName();
+        const params = new URLSearchParams();
+        if (serverId) params.set("serverId", serverId);
+        if (name) params.set("name", name);
+        return params.toString() ? `?${params.toString()}` : "";
+      }
+
+      function endpointWithTarget(path) {
+        return path + targetQuery();
+      }
+
+      async function api(url, options = {}, timeoutMs = 22000) {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
         try {
-          return JSON.parse(text);
-        } catch {
-          return { raw: text };
+          const response = await fetch(url, { ...options, signal: controller.signal });
+          const contentType = response.headers.get("content-type") || "";
+          const text = await response.text();
+          let data;
+
+          if (contentType.includes("application/json")) {
+            try {
+              data = text ? JSON.parse(text) : {};
+            } catch {
+              data = { error: "Invalid JSON response", raw: text };
+            }
+          } else {
+            data = { raw: text };
+          }
+
+          if (!response.ok) {
+            throw new Error(data.error || data.raw || `${response.status} ${response.statusText}`);
+          }
+
+          return data;
+        } catch (error) {
+          if (error.name === "AbortError") {
+            throw new Error("Request timed out while waiting for Docker");
+          }
+          throw error;
+        } finally {
+          window.clearTimeout(timeout);
         }
       }
 
-      function currentTarget() {
-        return document.getElementById("targetInput").value || undefined;
+      function post(url, body, timeoutMs = 35000) {
+        return api(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body || {}),
+        }, timeoutMs);
       }
 
-      async function refresh() {
-        const t = await call("/api/target");
-        if (t.target) document.getElementById("targetInput").value = t.target;
-        const j = await call("/api/info");
-        if (j.error) {
-          document.getElementById("status").textContent = "Error: " + j.error;
-          document.getElementById("details").textContent = "";
+      async function withBusy(key, work) {
+        state.busy.add(key);
+        syncBusy();
+        try {
+          return await work();
+        } finally {
+          state.busy.delete(key);
+          syncBusy();
+        }
+      }
+
+      function syncBusy() {
+        const blocking = [...state.busy].some((key) => !["containers", "logs", "refresh"].includes(key));
+        actionButtons.forEach((button) => {
+          button.disabled = blocking;
+        });
+        el.loadContainersBtn.disabled = blocking || state.busy.has("containers");
+        el.logsBtn.disabled = blocking || state.busy.has("logs");
+        el.refreshBtn.disabled = blocking || state.busy.has("refresh");
+      }
+
+      function formatPorts(bindings = {}) {
+        const parts = [];
+        Object.entries(bindings || {}).forEach(([containerPort, binds]) => {
+          (binds || []).forEach((bind) => {
+            const host = bind.HostPort ? `${bind.HostIp && bind.HostIp !== "0.0.0.0" ? `${bind.HostIp}:` : ""}${bind.HostPort}` : "unpublished";
+            parts.push(`${host} -> ${containerPort}`);
+          });
+        });
+        return parts.length ? parts.join(", ") : "No published ports";
+      }
+
+      function formatRestartPolicy(policy = {}) {
+        if (!policy.Name) return "No restart policy";
+        return policy.MaximumRetryCount ? `${policy.Name} (${policy.MaximumRetryCount})` : policy.Name;
+      }
+
+      function getCurrentServer() {
+        return state.servers.find((server) => server.id === selectedServerId()) || state.servers[0] || null;
+      }
+
+      function renderServerSelect(servers = [], activeServerId = "") {
+        const previous = selectedServerId();
+        el.serverSelect.replaceChildren();
+        servers.forEach((server) => {
+          const option = new Option(`${server.label} - ${server.hostLabel}`, server.id);
+          el.serverSelect.add(option);
+        });
+
+        const nextValue = servers.some((server) => server.id === previous) ? previous : activeServerId;
+        if (nextValue) el.serverSelect.value = nextValue;
+      }
+
+      function toggleSshFields() {
+        const ssh = el.serverTypeSelect.value === "ssh";
+        document.querySelectorAll(".ssh-field").forEach((node) => {
+          node.classList.toggle("hidden", !ssh);
+        });
+      }
+
+      function fillServerForm(server) {
+        if (!server) return;
+        state.editingServerId = server.id || "";
+        el.serverLabelInput.value = server.label || "";
+        el.serverTypeSelect.value = server.type || "local";
+        el.serverContainerInput.value = server.container || "";
+        el.serverHostInput.value = server.host || "";
+        el.serverUserInput.value = server.user || "";
+        el.serverPortInput.value = server.port || 22;
+        el.serverIdentityInput.value = server.identityFile || "";
+        el.serverDockerPathInput.value = server.dockerPath || "docker";
+        el.targetInput.value = server.container || "";
+        toggleSshFields();
+      }
+
+      function newServerForm() {
+        state.editingServerId = "";
+        el.serverLabelInput.value = "";
+        el.serverTypeSelect.value = "ssh";
+        el.serverContainerInput.value = "";
+        el.serverHostInput.value = "";
+        el.serverUserInput.value = "root";
+        el.serverPortInput.value = "22";
+        el.serverIdentityInput.value = "";
+        el.serverDockerPathInput.value = "docker";
+        toggleSshFields();
+      }
+
+      async function loadServers() {
+        const data = await api("/api/servers");
+        state.servers = data.servers || [];
+        state.activeServerId = data.activeServerId || state.servers[0]?.id || "";
+        renderServerSelect(state.servers, state.activeServerId);
+        fillServerForm(getCurrentServer());
+        return data;
+      }
+
+      function renderStatus(info) {
+        const running = Boolean(info.running);
+        const difficulty = info.fileDifficulty || info.envDifficulty || "n/a";
+
+        el.stateDot.classList.toggle("running", running);
+        el.stateDot.classList.toggle("stopped", !running);
+        setText(el.statePill, info.state || "unknown");
+        setText(el.targetPill, info.target || info.name);
+        setText(el.editionPill, info.edition || "unknown");
+        setText(el.hostPill, info.hostLabel || "local Docker");
+
+        setText(el.stateMetric, running ? "Running" : info.state || "Stopped");
+        setText(el.uptimeMetric, info.hostLabel || "No host");
+        setText(el.difficultyMetric, difficulty);
+        setText(el.difficultyDetail, info.fileDifficulty ? "server.properties" : info.envDifficulty ? "environment" : "not reported");
+        setText(el.imageMetric, info.image || "n/a");
+        setText(el.restartMetric, formatRestartPolicy(info.restartPolicy));
+        setText(el.whitelistFileMetric, info.whitelistFile || "n/a");
+        setText(el.portsMetric, formatPorts(info.ports));
+
+        document.querySelectorAll("[data-difficulty]").forEach((button) => {
+          button.setAttribute("aria-pressed", button.dataset.difficulty === difficulty ? "true" : "false");
+        });
+      }
+
+      function renderDetails(info) {
+        const rows = [
+          ["Container", info.name],
+          ["Server", info.serverLabel],
+          ["Host", info.hostLabel],
+          ["Target", info.target],
+          ["Edition", info.edition],
+          ["Image", info.image],
+          ["State", info.state],
+          ["Ports", formatPorts(info.ports)],
+          ["Restart", formatRestartPolicy(info.restartPolicy)],
+          ["Mounts", (info.mounts || []).map((mount) => `${mount.source || mount.type} -> ${mount.dest}${mount.rw ? "" : " (read only)"}`).join("\n")],
+        ];
+
+        el.detailsList.replaceChildren();
+        rows.forEach(([label, value]) => {
+          const dt = document.createElement("dt");
+          const dd = document.createElement("dd");
+          dt.textContent = label;
+          dd.textContent = value || "-";
+          el.detailsList.append(dt, dd);
+        });
+        el.detailsRaw.textContent = JSON.stringify(info, null, 2);
+      }
+
+      function renderWhitelist(data) {
+        const entries = Array.isArray(data.entries) ? data.entries : [];
+        const label = data.edition === "bedrock" ? "Allowlist" : "Whitelist";
+        setMessage(el.whitelistMessage, `${label} file: ${data.file || "n/a"}`);
+
+        if (!entries.length) {
+          el.whitelistTable.replaceChildren();
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No players found";
+          el.whitelistTable.append(empty);
           return;
         }
-        document.getElementById("status").innerHTML = `
-          <div class="kv">
-            <div>Target</div><div><strong>${j.target}</strong></div>
-            <div>Container</div><div><strong>${j.name}</strong></div>
-            <div>Edition</div><div><strong>${j.edition}</strong></div>
-            <div>Status</div><div>${j.state} ${j.running ? "🟢" : "🔴"}</div>
-            <div>Image</div><div>${j.image ?? "n/a"}</div>
-            <div>Env difficulty</div><div><strong>${j.envDifficulty ?? "n/a"}</strong></div>
-            <div>File difficulty</div><div>${j.fileDifficulty ?? "n/a"}</div>
-            <div>Whitelist file</div><div>${j.whitelistFile ?? "n/a"}</div>
-          </div>`;
-        document.getElementById("details").textContent = JSON.stringify(j, null, 2);
-        await loadWhitelist();
-      }
 
-      async function restart() {
-        const j = await call("/api/restart", "POST", { name: currentTarget() });
-        if (j.error) alert(j.error);
-        else {
-          await new Promise((r) => setTimeout(r, 800));
-          refresh();
-        }
-      }
-
-      async function startC() {
-        const j = await call("/api/start", "POST", { name: currentTarget() });
-        if (j.error) alert(j.error);
-        else refresh();
-      }
-
-      async function stopC() {
-        const j = await call("/api/stop", "POST", { name: currentTarget() });
-        if (j.error) alert(j.error);
-        else refresh();
-      }
-
-      async function setDiff(level) {
-        if (!confirm("Change difficulty to " + level + "?")) return;
-        const j = await call("/api/difficulty", "POST", {
-          level,
-          name: currentTarget(),
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const tbody = document.createElement("tbody");
+        const header = document.createElement("tr");
+        ["Player", "Identifier", "Raw"].forEach((text) => {
+          const th = document.createElement("th");
+          th.textContent = text;
+          header.append(th);
         });
-        if (j.error) alert(j.error);
-        else {
-          await new Promise((r) => setTimeout(r, 1500));
-          refresh();
-        }
-      }
+        thead.append(header);
 
-      async function setTarget() {
-        const name = document.getElementById("targetInput").value.trim();
-        if (!name) return alert("enter a container name or ID");
-        const j = await call("/api/target", "POST", { name });
-        if (j.error) alert(j.error);
-        else refresh();
-      }
-
-      async function listContainers() {
-        const j = await call("/api/containers");
-        if (j.error) return alert(j.error);
-        const lines = j.containers
-          .map((c) => `${c.name}  (${c.id.slice(0, 12)})  ${c.image}  ${c.status}`)
-          .join("\n");
-        document.getElementById("logs").textContent = lines || "No containers found";
-      }
-
-      async function renameContainer() {
-        const newName = document.getElementById("renameInput").value.trim();
-        if (!newName) return alert("enter a new name");
-        const j = await call("/api/rename", "POST", {
-          name: currentTarget(),
-          newName,
+        entries.forEach((entry) => {
+          const row = document.createElement("tr");
+          const player = entry.name || entry.gamertag || entry.xuid || entry.uuid || "Unknown";
+          const id = entry.uuid || entry.xuid || entry.ignoresPlayerLimit || "-";
+          [player, id, JSON.stringify(entry)].forEach((text) => {
+            const td = document.createElement("td");
+            td.textContent = text;
+            row.append(td);
+          });
+          tbody.append(row);
         });
-        if (j.error) alert(j.error);
-        else {
-          document.getElementById("targetInput").value = j.target;
-          refresh();
+
+        table.append(thead, tbody);
+        el.whitelistTable.replaceChildren(table);
+      }
+
+      function renderContainers(containers = []) {
+        el.containerSelect.replaceChildren(new Option("Known containers", ""));
+        containers.forEach((container) => {
+          const option = new Option(`${container.name} - ${container.status}`, container.name);
+          el.containerSelect.add(option);
+        });
+
+        if (!containers.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No containers found";
+          el.containersWrap.replaceChildren(empty);
+          el.containersWrap.classList.remove("hidden");
+          return;
         }
+
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const tbody = document.createElement("tbody");
+        const header = document.createElement("tr");
+        ["Name", "Image", "Status"].forEach((text) => {
+          const th = document.createElement("th");
+          th.textContent = text;
+          header.append(th);
+        });
+        thead.append(header);
+
+        containers.forEach((container) => {
+          const row = document.createElement("tr");
+          row.tabIndex = 0;
+          row.addEventListener("click", () => {
+            el.targetInput.value = container.name;
+            el.serverContainerInput.value = container.name;
+          });
+          [container.name, container.image, container.status].forEach((text) => {
+            const td = document.createElement("td");
+            td.textContent = text || "-";
+            row.append(td);
+          });
+          tbody.append(row);
+        });
+
+        table.append(thead, tbody);
+        el.containersWrap.replaceChildren(table);
+        el.containersWrap.classList.remove("hidden");
       }
 
       async function loadWhitelist() {
-        const qs = new URLSearchParams();
-        if (currentTarget()) qs.set("name", currentTarget());
-        const j = await call("/api/whitelist" + (qs.toString() ? `?${qs.toString()}` : ""));
-        if (j.error) {
-          document.getElementById("whitelist").textContent = "Unavailable: " + j.error;
-          document.getElementById("whitelistNote").textContent = "";
+        try {
+          const data = await api(endpointWithTarget("/api/whitelist"));
+          renderWhitelist(data);
+        } catch (error) {
+          el.whitelistTable.replaceChildren();
+          setMessage(el.whitelistMessage, `Unavailable: ${error.message}`, "error");
+        }
+      }
+
+      async function refresh() {
+        return withBusy("refresh", async () => {
+          setMessage(el.targetMessage, "Refreshing...");
+          try {
+            await loadServers();
+            const info = await api(endpointWithTarget("/api/info"));
+            state.activeServerId = info.serverId || selectedServerId() || state.activeServerId;
+            if (state.activeServerId) el.serverSelect.value = state.activeServerId;
+            state.activeTarget = info.target || "";
+            state.info = info;
+            el.targetInput.value = state.activeTarget;
+            el.serverContainerInput.value = state.activeTarget;
+            renderStatus(info);
+            renderDetails(info);
+            setMessage(el.targetMessage, "Current");
+            loadWhitelist();
+          } catch (error) {
+            state.info = null;
+            setText(el.statePill, "Error");
+            el.stateDot.classList.remove("running");
+            el.stateDot.classList.add("stopped");
+            setMessage(el.targetMessage, error.message, "error");
+          }
+        });
+      }
+
+      async function listContainers() {
+        return withBusy("containers", async () => {
+          setMessage(el.targetMessage, "Loading containers...");
+          try {
+            const data = await api("/api/containers");
+            renderContainers(data.containers || []);
+            setMessage(el.targetMessage, `${(data.containers || []).length} containers loaded`, "success");
+          } catch (error) {
+            setMessage(el.targetMessage, error.message, "error");
+          }
+        });
+      }
+
+      async function useTarget() {
+        const name = el.targetInput.value.trim();
+        const serverId = selectedServerId();
+        if (!serverId && !name) {
+          setMessage(el.targetMessage, "Choose a server or enter a container name", "error");
           return;
         }
-        const label = j.edition === "bedrock" ? "Allowlist" : "Whitelist";
-        document.getElementById("whitelist").textContent = `${label} file: ${j.file}\n\n${JSON.stringify(j.entries, null, 2)}`;
-        document.getElementById("whitelistNote").textContent =
-          j.edition === "bedrock"
-            ? "Bedrock uses allowlist.json and the /allowlist command. If a GamerTag has spaces, enter it exactly as shown in Xbox Live."
-            : "Java uses whitelist.json and the /whitelist command.";
+
+        return withBusy("target", async () => {
+          setMessage(el.targetMessage, "Switching target...");
+          try {
+            const data = await post("/api/target", { serverId, name });
+            state.activeServerId = data.serverId || serverId || state.activeServerId;
+            state.activeTarget = data.target || name;
+            if (state.activeServerId) el.serverSelect.value = state.activeServerId;
+            el.targetInput.value = state.activeTarget;
+            el.serverContainerInput.value = state.activeTarget;
+            setMessage(el.targetMessage, "Target updated", "success");
+            await refresh();
+          } catch (error) {
+            setMessage(el.targetMessage, error.message, "error");
+          }
+        });
       }
 
-      async function enableWhitelist(enabled) {
-        const j = await call("/api/whitelist/enable", "POST", {
-          name: currentTarget(),
-          enabled,
-        });
-        if (j.error) return alert(j.error);
-        if (j.note) alert(j.note);
-        await refresh();
+      function serverPayloadFromForm() {
+        return {
+          id: state.editingServerId,
+          label: el.serverLabelInput.value.trim(),
+          type: el.serverTypeSelect.value,
+          container: el.serverContainerInput.value.trim() || el.targetInput.value.trim(),
+          host: el.serverHostInput.value.trim(),
+          user: el.serverUserInput.value.trim(),
+          port: Number.parseInt(el.serverPortInput.value, 10) || 22,
+          identityFile: el.serverIdentityInput.value.trim(),
+          dockerPath: el.serverDockerPathInput.value.trim() || "docker",
+        };
       }
 
-      async function addPlayer() {
-        const player = document.getElementById("playerInput").value.trim();
-        if (!player) return alert("enter a player name");
-        const j = await call("/api/whitelist/add", "POST", {
-          name: currentTarget(),
-          player,
-          autoEnable: true,
+      async function saveServer() {
+        return withBusy("save-server", async () => {
+          setMessage(el.targetMessage, "Saving server...");
+          try {
+            const data = await post("/api/servers", serverPayloadFromForm(), 35000);
+            state.servers = data.servers || [];
+            state.activeServerId = data.activeServerId || data.server?.id || state.activeServerId;
+            state.editingServerId = data.server?.id || state.activeServerId;
+            renderServerSelect(state.servers, state.activeServerId);
+            fillServerForm(getCurrentServer());
+            setMessage(el.targetMessage, "Server saved", "success");
+            await refresh();
+          } catch (error) {
+            setMessage(el.targetMessage, error.message, "error");
+          }
         });
-        if (j.error) return alert(j.error);
-        if (j.note) alert(j.note);
-        await refresh();
       }
 
-      async function removePlayer() {
-        const player = document.getElementById("playerInput").value.trim();
-        if (!player) return alert("enter a player name");
-        const j = await call("/api/whitelist/remove", "POST", {
-          name: currentTarget(),
-          player,
+      async function deleteServer() {
+        const server = getCurrentServer();
+        if (!server) return;
+        if (!confirm(`Delete ${server.label}?`)) return;
+
+        return withBusy("delete-server", async () => {
+          setMessage(el.targetMessage, "Deleting server...");
+          try {
+            const data = await api(`/api/servers/${encodeURIComponent(server.id)}`, { method: "DELETE" });
+            state.servers = data.servers || [];
+            state.activeServerId = data.activeServerId || state.servers[0]?.id || "";
+            renderServerSelect(state.servers, state.activeServerId);
+            fillServerForm(getCurrentServer());
+            setMessage(el.targetMessage, "Server deleted", "success");
+            await refresh();
+          } catch (error) {
+            setMessage(el.targetMessage, error.message, "error");
+          }
         });
-        if (j.error) return alert(j.error);
-        if (j.note) alert(j.note);
-        await refresh();
+      }
+
+      async function containerAction(action) {
+        const labels = {
+          restart: "Restarting...",
+          start: "Starting...",
+          stop: "Stopping...",
+        };
+
+        return withBusy(action, async () => {
+          setMessage(el.operationMessage, labels[action] || "Working...");
+          try {
+            await post(`/api/${action}`, currentRequestTarget());
+            if (action === "restart") {
+              await new Promise((resolve) => setTimeout(resolve, 900));
+            }
+            await refresh();
+            setMessage(el.operationMessage, `${action[0].toUpperCase()}${action.slice(1)} complete`, "success");
+          } catch (error) {
+            setMessage(el.operationMessage, error.message, "error");
+          }
+        });
+      }
+
+      async function setDifficulty(level) {
+        if (!confirm(`Change difficulty to ${level}?`)) return;
+
+        return withBusy("difficulty", async () => {
+          setMessage(el.operationMessage, `Changing difficulty to ${level}...`);
+          try {
+            await post("/api/difficulty", { ...currentRequestTarget(), level }, 70000);
+            await new Promise((resolve) => setTimeout(resolve, 1400));
+            await refresh();
+            setMessage(el.operationMessage, `Difficulty set to ${level}`, "success");
+          } catch (error) {
+            setMessage(el.operationMessage, error.message, "error");
+          }
+        });
+      }
+
+      async function renameContainer() {
+        const newName = el.renameInput.value.trim();
+        if (!newName) {
+          setMessage(el.operationMessage, "Enter a new container name", "error");
+          return;
+        }
+
+        return withBusy("rename", async () => {
+          setMessage(el.operationMessage, "Renaming...");
+          try {
+            const data = await post("/api/rename", { ...currentRequestTarget(), newName });
+            state.activeServerId = data.serverId || state.activeServerId;
+            state.activeTarget = data.target || newName;
+            el.targetInput.value = state.activeTarget;
+            el.renameInput.value = "";
+            await refresh();
+            setMessage(el.operationMessage, "Container renamed", "success");
+          } catch (error) {
+            setMessage(el.operationMessage, error.message, "error");
+          }
+        });
+      }
+
+      async function toggleWhitelist(enabled) {
+        return withBusy("whitelist", async () => {
+          setMessage(el.whitelistMessage, enabled ? "Enabling..." : "Disabling...");
+          try {
+            const data = await post("/api/whitelist/enable", { ...currentRequestTarget(), enabled });
+            if (data.whitelist) renderWhitelist(data.whitelist);
+            await refresh();
+            setMessage(el.whitelistMessage, data.note || (enabled ? "Enabled" : "Disabled"), "success");
+          } catch (error) {
+            setMessage(el.whitelistMessage, error.message, "error");
+          }
+        });
+      }
+
+      async function changePlayer(action) {
+        const player = el.playerInput.value.trim();
+        if (!player) {
+          setMessage(el.whitelistMessage, "Enter a player name", "error");
+          return;
+        }
+
+        return withBusy(`player-${action}`, async () => {
+          setMessage(el.whitelistMessage, action === "add" ? "Adding player..." : "Removing player...");
+          try {
+            const data = await post(`/api/whitelist/${action}`, {
+              ...currentRequestTarget(),
+              player,
+              autoEnable: true,
+            });
+            if (data.whitelist) renderWhitelist(data.whitelist);
+            await refresh();
+            setMessage(el.whitelistMessage, data.note || `${player} ${action === "add" ? "added" : "removed"}`, "success");
+          } catch (error) {
+            setMessage(el.whitelistMessage, error.message, "error");
+          }
+        });
       }
 
       async function showLogs() {
-        const lines = document.getElementById("logLines").value || "200";
-        const qs = new URLSearchParams({ lines });
-        if (currentTarget()) qs.set("name", currentTarget());
-        const r = await fetch("/api/logs?" + qs.toString());
-        const t = await r.text();
-        document.getElementById("logs").textContent = t;
+        return withBusy("logs", async () => {
+          const rawLines = Number.parseInt(el.logLines.value, 10);
+          const lines = Number.isFinite(rawLines) ? Math.max(1, Math.min(5000, rawLines)) : 200;
+          el.logLines.value = String(lines);
+          const params = new URLSearchParams({ lines: String(lines) });
+          const serverId = selectedServerId();
+          const target = targetName();
+          if (serverId) params.set("serverId", serverId);
+          if (target) params.set("name", target);
+
+          el.logs.textContent = "Loading...";
+          try {
+            const data = await api(`/api/logs?${params.toString()}`, {}, 26000);
+            el.logs.textContent = data.raw || "No log output";
+          } catch (error) {
+            el.logs.textContent = "";
+            setMessage(el.operationMessage, error.message, "error");
+          }
+        });
       }
+
+      el.refreshBtn.addEventListener("click", refresh);
+      el.loadContainersBtn.addEventListener("click", listContainers);
+      el.useTargetBtn.addEventListener("click", useTarget);
+      el.serverSelect.addEventListener("change", async () => {
+        const server = getCurrentServer();
+        fillServerForm(server);
+        if (server) {
+          state.activeServerId = server.id;
+          state.activeTarget = server.container || "";
+          await useTarget();
+        }
+      });
+      el.serverTypeSelect.addEventListener("change", toggleSshFields);
+      el.newServerBtn.addEventListener("click", newServerForm);
+      el.saveServerBtn.addEventListener("click", saveServer);
+      el.deleteServerBtn.addEventListener("click", deleteServer);
+      el.containerSelect.addEventListener("change", () => {
+        if (el.containerSelect.value) el.targetInput.value = el.containerSelect.value;
+      });
+      el.targetInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") useTarget();
+      });
+      el.startBtn.addEventListener("click", () => containerAction("start"));
+      el.restartBtn.addEventListener("click", () => containerAction("restart"));
+      el.stopBtn.addEventListener("click", () => containerAction("stop"));
+      document.querySelectorAll("[data-difficulty]").forEach((button) => {
+        button.addEventListener("click", () => setDifficulty(button.dataset.difficulty));
+      });
+      el.renameBtn.addEventListener("click", renameContainer);
+      el.enableWhitelistBtn.addEventListener("click", () => toggleWhitelist(true));
+      el.disableWhitelistBtn.addEventListener("click", () => toggleWhitelist(false));
+      el.addPlayerBtn.addEventListener("click", () => changePlayer("add"));
+      el.removePlayerBtn.addEventListener("click", () => changePlayer("remove"));
+      el.logsBtn.addEventListener("click", showLogs);
+      el.logLines.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") showLogs();
+      });
 
       refresh();
     </script>

@@ -1,16 +1,16 @@
 {
   "name": "bedrock-server",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.mjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.mjs",
+    "check": "node --check server.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "dockerode": "^4.0.7",
     "express": "^5.1.0"
   }
 }
