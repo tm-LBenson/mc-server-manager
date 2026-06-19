@@ -354,7 +354,14 @@ const sendServerCommand = async (server, containerInspect, args) => {
   throw new Error(`unsupported container image for server commands: ${containerInspect.Config?.Image || "unknown"}`);
 };
 
-const fileDifficulty = async (server) => {
+const assertServerProperty = (key, value = "true") => {
+  if (!/^[a-z0-9_.-]+$/i.test(key)) throw new Error(`invalid server property: ${key}`);
+  if (!/^[a-z0-9_.-]+$/i.test(value)) throw new Error(`invalid server property value: ${value}`);
+};
+
+const readServerProperty = async (server, key) => {
+  assertServerProperty(key);
+
   try {
     const out = await runQuick(
       server,
@@ -362,13 +369,32 @@ const fileDifficulty = async (server) => {
       server.container,
       "sh",
       "-lc",
-      "grep -E '^difficulty=' /data/server.properties | head -n1 | cut -d= -f2",
+      `test -f /data/server.properties && awk -F= '$1 == "${key}" { print substr($0, length($1) + 2); exit }' /data/server.properties || true`,
     );
     return out.trim() || null;
   } catch {
     return null;
   }
 };
+
+const writeServerProperty = async (server, key, value) => {
+  assertServerProperty(key, value);
+  const script = [
+    "set -e",
+    "file=/data/server.properties",
+    'touch "$file"',
+    `if grep -q '^${key}=' "$file"; then`,
+    `  sed -i 's|^${key}=.*|${key}=${value}|' "$file"`,
+    "else",
+    `  printf '\\n${key}=${value}\\n' >> "$file"`,
+    "fi",
+  ].join("\n");
+
+  await run(server, "exec", server.container, "sh", "-lc", script);
+};
+
+const fileDifficulty = (server) => readServerProperty(server, "difficulty");
+const filePvp = (server) => readServerProperty(server, "pvp");
 
 const readWhitelistFile = async (server) => {
   const { i, edition } = await getContainerMeta(server);
@@ -470,7 +496,9 @@ app.get("/api/info", async (req, res) => {
       state: i.State?.Status || "unknown",
       edition,
       envDifficulty: env.DIFFICULTY ?? null,
+      envPvp: env.PVP ?? null,
       fileDifficulty: await fileDifficulty(server),
+      filePvp: await filePvp(server),
       ports: i.HostConfig?.PortBindings || {},
       mounts: (i.Mounts || []).map((m) => ({
         type: m.Type,
@@ -566,6 +594,27 @@ app.post("/api/difficulty", async (req, res) => {
 
     await updateServerContainer(server.id, name);
     res.json({ ok: true, newDifficulty: level, target: name, serverId: server.id });
+  } catch (error) {
+    res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
+app.post("/api/pvp", async (req, res) => {
+  try {
+    const server = resolveServer(req.body);
+    const rawEnabled = req.body?.enabled;
+    if (![true, false, "true", "false"].includes(rawEnabled)) {
+      return res.status(400).json({ error: "enabled must be true or false" });
+    }
+
+    const enabled = rawEnabled === true || rawEnabled === "true";
+    const { i } = await getContainerMeta(server);
+    ensureRunning(i);
+
+    await writeServerProperty(server, "pvp", enabled ? "true" : "false");
+    await run(server, "restart", server.container);
+
+    res.json({ ok: true, enabled, filePvp: enabled ? "true" : "false", restarted: true });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
   }

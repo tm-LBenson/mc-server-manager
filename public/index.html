@@ -400,6 +400,10 @@
         width: 100%;
       }
 
+      .segmented.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .segmented .btn {
         min-width: 0;
       }
@@ -715,6 +719,15 @@
             </div>
             <div class="form-row">
               <div class="field grow">
+                <label>PVP</label>
+                <div class="segmented two" role="group" aria-label="PVP">
+                  <button class="btn" type="button" data-pvp="true" aria-pressed="false">Enabled</button>
+                  <button class="btn" type="button" data-pvp="false" aria-pressed="false">Disabled</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field grow">
                 <label for="renameInput">Container name</label>
                 <input id="renameInput" autocomplete="off" placeholder="New container name" />
               </div>
@@ -875,6 +888,7 @@
         el.stopBtn,
         el.useTargetBtn,
         ...document.querySelectorAll("[data-difficulty]"),
+        ...document.querySelectorAll("[data-pvp]"),
       ];
 
       function setText(node, value) {
@@ -998,6 +1012,13 @@
         return policy.MaximumRetryCount ? `${policy.Name} (${policy.MaximumRetryCount})` : policy.Name;
       }
 
+      function formatPvp(info) {
+        const value = String(info.filePvp ?? info.envPvp ?? "").toLowerCase();
+        if (value === "true") return "Enabled";
+        if (value === "false") return "Disabled";
+        return "n/a";
+      }
+
       function showTab(tabName) {
         document.querySelectorAll("[data-tab]").forEach((button) => {
           button.setAttribute("aria-selected", button.dataset.tab === tabName ? "true" : "false");
@@ -1070,6 +1091,7 @@
       function renderStatus(info) {
         const running = Boolean(info.running);
         const difficulty = info.fileDifficulty || info.envDifficulty || "n/a";
+        const pvp = String(info.filePvp ?? info.envPvp ?? "").toLowerCase();
 
         el.stateDot.classList.toggle("running", running);
         el.stateDot.classList.toggle("stopped", !running);
@@ -1090,6 +1112,10 @@
         document.querySelectorAll("[data-difficulty]").forEach((button) => {
           button.setAttribute("aria-pressed", button.dataset.difficulty === difficulty ? "true" : "false");
         });
+
+        document.querySelectorAll("[data-pvp]").forEach((button) => {
+          button.setAttribute("aria-pressed", button.dataset.pvp === pvp ? "true" : "false");
+        });
       }
 
       function renderDetails(info) {
@@ -1101,6 +1127,7 @@
           ["Edition", info.edition],
           ["Image", info.image],
           ["State", info.state],
+          ["PVP", formatPvp(info)],
           ["Ports", formatPorts(info.ports)],
           ["Restart", formatRestartPolicy(info.restartPolicy)],
           ["Mounts", (info.mounts || []).map((mount) => `${mount.source || mount.type} -> ${mount.dest}${mount.rw ? "" : " (read only)"}`).join("\n")],
@@ -1370,6 +1397,23 @@
         });
       }
 
+      async function setPvp(enabled) {
+        const verb = enabled ? "enable" : "disable";
+        if (!confirm(`This will ${verb} PVP and restart the container. Continue?`)) return;
+
+        return withBusy("pvp", async () => {
+          setMessage(el.operationMessage, `${enabled ? "Enabling" : "Disabling"} PVP...`);
+          try {
+            await post("/api/pvp", { ...currentRequestTarget(), enabled }, 70000);
+            await new Promise((resolve) => setTimeout(resolve, 1400));
+            await refresh();
+            setMessage(el.operationMessage, `PVP ${enabled ? "enabled" : "disabled"}`, "success");
+          } catch (error) {
+            setMessage(el.operationMessage, error.message, "error");
+          }
+        });
+      }
+
       async function renameContainer() {
         const newName = el.renameInput.value.trim();
         if (!newName) {
@@ -1487,6 +1531,9 @@
       el.stopBtn.addEventListener("click", () => containerAction("stop"));
       document.querySelectorAll("[data-difficulty]").forEach((button) => {
         button.addEventListener("click", () => setDifficulty(button.dataset.difficulty));
+      });
+      document.querySelectorAll("[data-pvp]").forEach((button) => {
+        button.addEventListener("click", () => setPvp(button.dataset.pvp === "true"));
       });
       el.renameBtn.addEventListener("click", renameContainer);
       el.enableWhitelistBtn.addEventListener("click", () => toggleWhitelist(true));
