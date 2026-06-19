@@ -228,7 +228,14 @@ const resolveServer = (source = {}) => {
 
 const shellQuote = (value) => `'${String(value).replace(/'/g, "'\\''")}'`;
 
-const dockerCommandArgs = (server, args) => [server.dockerPath || "docker", ...args];
+const splitCommand = (value = "docker") => {
+  const matches = String(value || "docker").match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || ["docker"];
+  return matches.map((part) => part.replace(/^(['"])(.*)\1$/, "$2"));
+};
+
+const dockerCommandParts = (server) => splitCommand(server.dockerPath || "docker");
+
+const dockerCommandArgs = (server, args) => [...dockerCommandParts(server), ...args];
 
 const sshDestination = (server) => (server.user ? `${server.user}@${server.host}` : server.host);
 
@@ -254,8 +261,9 @@ const sshArgs = (server, args) => {
 
 const runDocker = async (server, timeoutMs, ...args) => {
   const timeout = normalizeTimeout(timeoutMs, DEFAULT_DOCKER_TIMEOUT_MS);
-  const command = server.type === "ssh" ? "ssh" : server.dockerPath || "docker";
-  const commandArgs = server.type === "ssh" ? sshArgs(server, args) : args;
+  const dockerParts = dockerCommandParts(server);
+  const command = server.type === "ssh" ? "ssh" : dockerParts[0];
+  const commandArgs = server.type === "ssh" ? sshArgs(server, args) : [...dockerParts.slice(1), ...args];
 
   try {
     const { stdout } = await execFileAsync(command, commandArgs, {
@@ -265,11 +273,15 @@ const runDocker = async (server, timeoutMs, ...args) => {
     });
     return stdout.toString();
   } catch (error) {
+    const notFoundMessage =
+      error?.code === "ENOENT"
+        ? `${command} was not found. For Local Docker in Coolify, install the Docker CLI and mount /var/run/docker.sock into this app.`
+        : "";
     const timeoutMessage =
       error?.killed || error?.code === "ETIMEDOUT"
         ? `${server.type === "ssh" ? "ssh docker" : "docker"} ${args[0] || "command"} timed out after ${timeout}ms`
         : "";
-    const parts = [timeoutMessage, error?.message, error?.stdout?.toString?.(), error?.stderr?.toString?.()].filter(Boolean);
+    const parts = [notFoundMessage, timeoutMessage, error?.message, error?.stdout?.toString?.(), error?.stderr?.toString?.()].filter(Boolean);
     throw new Error(parts.join("\n").trim());
   }
 };

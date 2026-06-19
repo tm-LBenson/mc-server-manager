@@ -32,6 +32,20 @@ Connection types:
 - `Local Docker`: runs `docker ...` on the same machine as this app.
 - `SSH Docker`: runs `docker ...` on another machine through SSH.
 
+For `Local Docker` in Coolify, mount the host Docker socket into this app:
+
+```text
+/var/run/docker.sock -> /var/run/docker.sock
+```
+
+In Coolify this can be added as a bind mount or as a custom Docker option:
+
+```text
+-v /var/run/docker.sock:/var/run/docker.sock
+```
+
+This lets the app's built-in Docker CLI control containers on the Coolify host. Treat the app like an admin tool: access to the Docker socket effectively grants host-level Docker control.
+
 For Coolify-hosted Minecraft containers on another machine:
 
 1. Add a server target with `Connection` set to `SSH Docker`.
