@@ -11,6 +11,18 @@ npm start
 
 Open `http://localhost:8881`.
 
+Default admin password:
+
+```text
+techtavern
+```
+
+Override it with:
+
+```env
+ADMIN_PASSWORD=your-password
+```
+
 ## Managed Servers
 
 Server targets are saved in `servers.json` and are intentionally gitignored. Each target has a display name, connection type, Docker container name, and optional SSH settings.

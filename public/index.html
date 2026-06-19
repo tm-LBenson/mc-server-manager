@@ -177,6 +177,37 @@
         box-shadow: var(--shadow);
       }
 
+      .tabs {
+        display: flex;
+        gap: 8px;
+        margin: 16px 0;
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+
+      .tab-button {
+        min-height: 40px;
+        flex: 0 0 auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-weight: 750;
+        padding: 9px 13px;
+      }
+
+      .tab-button[aria-selected="true"] {
+        border-color: var(--green);
+        background: var(--green-soft);
+        color: var(--text);
+      }
+
+      .tab-panel {
+        display: grid;
+        gap: 16px;
+      }
+
       .panel-header {
         display: flex;
         align-items: center;
@@ -561,6 +592,7 @@
           <span class="pill">Target <strong id="targetPill">-</strong></span>
           <span class="pill">Edition <strong id="editionPill">-</strong></span>
           <span class="pill">Host <strong id="hostPill">-</strong></span>
+          <button id="logoutBtn" class="btn subtle" type="button">Sign Out</button>
         </div>
       </header>
 
@@ -586,8 +618,137 @@
           </div>
           <div id="targetMessage" class="status-line" role="status" aria-live="polite"></div>
           <div id="containersWrap" class="table-wrap hidden" aria-live="polite"></div>
-          <details class="server-editor">
-            <summary>Server Settings</summary>
+        </div>
+      </section>
+
+      <nav class="tabs" role="tablist" aria-label="Server workspace">
+        <button class="tab-button" type="button" role="tab" aria-selected="true" data-tab="overview">Overview</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="players">Players</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="operations">Operations</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="logs">Logs</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="settings">Settings</button>
+      </nav>
+
+      <section class="tab-panel" data-tab-panel="overview">
+        <section class="metrics" aria-label="Server status">
+          <div class="metric">
+            <div class="metric-label">State</div>
+            <div id="stateMetric" class="metric-value">-</div>
+            <div id="uptimeMetric" class="metric-detail">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Difficulty</div>
+            <div id="difficultyMetric" class="metric-value">-</div>
+            <div id="difficultyDetail" class="metric-detail">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Image</div>
+            <div id="imageMetric" class="metric-value">-</div>
+            <div id="restartMetric" class="metric-detail">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">List File</div>
+            <div id="whitelistFileMetric" class="metric-value">-</div>
+            <div id="portsMetric" class="metric-detail">-</div>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="detailsHeading">
+          <div class="panel-header">
+            <h2 id="detailsHeading">Details</h2>
+          </div>
+          <div class="panel-body">
+            <dl id="detailsList" class="details-grid"></dl>
+            <details>
+              <summary>Raw inspect data</summary>
+              <pre id="detailsRaw"></pre>
+            </details>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel hidden" data-tab-panel="players">
+        <section class="panel" aria-labelledby="whitelistHeading">
+          <div class="panel-header">
+            <h2 id="whitelistHeading">Whitelist / Allowlist</h2>
+            <div class="form-row">
+              <button id="enableWhitelistBtn" class="btn" type="button">Enable</button>
+              <button id="disableWhitelistBtn" class="btn subtle" type="button">Disable</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="field grow">
+                <label for="playerInput">Player</label>
+                <input id="playerInput" autocomplete="off" placeholder="Java username or Bedrock GamerTag" />
+              </div>
+              <button id="addPlayerBtn" class="btn primary" type="button">Add</button>
+              <button id="removePlayerBtn" class="btn danger" type="button">Remove</button>
+            </div>
+            <div id="whitelistMessage" class="status-line" role="status" aria-live="polite"></div>
+            <div id="whitelistTable" class="table-wrap"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel hidden" data-tab-panel="operations">
+        <section class="panel" aria-labelledby="operationsHeading">
+          <div class="panel-header">
+            <h2 id="operationsHeading">Operations</h2>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <button id="startBtn" class="btn primary" type="button">Start</button>
+              <button id="restartBtn" class="btn warning" type="button">Restart</button>
+              <button id="stopBtn" class="btn danger" type="button">Stop</button>
+            </div>
+            <div class="form-row">
+              <div class="field grow">
+                <label>Difficulty</label>
+                <div class="segmented" role="group" aria-label="Difficulty">
+                  <button class="btn" type="button" data-difficulty="peaceful" aria-pressed="false">Peaceful</button>
+                  <button class="btn" type="button" data-difficulty="easy" aria-pressed="false">Easy</button>
+                  <button class="btn" type="button" data-difficulty="normal" aria-pressed="false">Normal</button>
+                  <button class="btn" type="button" data-difficulty="hard" aria-pressed="false">Hard</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field grow">
+                <label for="renameInput">Container name</label>
+                <input id="renameInput" autocomplete="off" placeholder="New container name" />
+              </div>
+              <button id="renameBtn" class="btn" type="button">Rename</button>
+            </div>
+            <div id="operationMessage" class="status-line" role="status" aria-live="polite"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel hidden" data-tab-panel="logs">
+        <section class="panel" aria-labelledby="logsHeading">
+          <div class="panel-header">
+            <h2 id="logsHeading">Logs</h2>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="field" style="width: 130px">
+                <label for="logLines">Lines</label>
+                <input id="logLines" inputmode="numeric" value="200" />
+              </div>
+              <button id="logsBtn" class="btn" type="button">Refresh Logs</button>
+            </div>
+            <pre id="logs"></pre>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel hidden" data-tab-panel="settings">
+        <section class="panel" aria-labelledby="settingsHeading">
+          <div class="panel-header">
+            <h2 id="settingsHeading">Server Settings</h2>
+          </div>
+          <div class="panel-body">
             <div class="connection-grid">
               <div class="field">
                 <label for="serverLabelInput">Name</label>
@@ -628,119 +789,9 @@
               <button id="saveServerBtn" class="btn primary" type="button">Save Server</button>
               <button id="deleteServerBtn" class="btn danger" type="button">Delete</button>
             </div>
-          </details>
-        </div>
+          </div>
+        </section>
       </section>
-
-      <section class="metrics" aria-label="Server status">
-        <div class="metric">
-          <div class="metric-label">State</div>
-          <div id="stateMetric" class="metric-value">-</div>
-          <div id="uptimeMetric" class="metric-detail">-</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">Difficulty</div>
-          <div id="difficultyMetric" class="metric-value">-</div>
-          <div id="difficultyDetail" class="metric-detail">-</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">Image</div>
-          <div id="imageMetric" class="metric-value">-</div>
-          <div id="restartMetric" class="metric-detail">-</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">List File</div>
-          <div id="whitelistFileMetric" class="metric-value">-</div>
-          <div id="portsMetric" class="metric-detail">-</div>
-        </div>
-      </section>
-
-      <div class="grid two">
-        <section class="panel" aria-labelledby="operationsHeading">
-          <div class="panel-header">
-            <h2 id="operationsHeading">Operations</h2>
-          </div>
-          <div class="panel-body">
-            <div class="form-row">
-              <button id="startBtn" class="btn primary" type="button">Start</button>
-              <button id="restartBtn" class="btn warning" type="button">Restart</button>
-              <button id="stopBtn" class="btn danger" type="button">Stop</button>
-            </div>
-            <div class="form-row">
-              <div class="field grow">
-                <label>Difficulty</label>
-                <div class="segmented" role="group" aria-label="Difficulty">
-                  <button class="btn" type="button" data-difficulty="peaceful" aria-pressed="false">Peaceful</button>
-                  <button class="btn" type="button" data-difficulty="easy" aria-pressed="false">Easy</button>
-                  <button class="btn" type="button" data-difficulty="normal" aria-pressed="false">Normal</button>
-                  <button class="btn" type="button" data-difficulty="hard" aria-pressed="false">Hard</button>
-                </div>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="field grow">
-                <label for="renameInput">Container name</label>
-                <input id="renameInput" autocomplete="off" placeholder="New container name" />
-              </div>
-              <button id="renameBtn" class="btn" type="button">Rename</button>
-            </div>
-            <div id="operationMessage" class="status-line" role="status" aria-live="polite"></div>
-          </div>
-        </section>
-
-        <section class="panel" aria-labelledby="detailsHeading">
-          <div class="panel-header">
-            <h2 id="detailsHeading">Details</h2>
-          </div>
-          <div class="panel-body">
-            <dl id="detailsList" class="details-grid"></dl>
-            <details>
-              <summary>Raw inspect data</summary>
-              <pre id="detailsRaw"></pre>
-            </details>
-          </div>
-        </section>
-      </div>
-
-      <div class="grid two" style="margin-top: 16px">
-        <section class="panel" aria-labelledby="whitelistHeading">
-          <div class="panel-header">
-            <h2 id="whitelistHeading">Whitelist / Allowlist</h2>
-            <div class="form-row">
-              <button id="enableWhitelistBtn" class="btn" type="button">Enable</button>
-              <button id="disableWhitelistBtn" class="btn subtle" type="button">Disable</button>
-            </div>
-          </div>
-          <div class="panel-body">
-            <div class="form-row">
-              <div class="field grow">
-                <label for="playerInput">Player</label>
-                <input id="playerInput" autocomplete="off" placeholder="Java username or Bedrock GamerTag" />
-              </div>
-              <button id="addPlayerBtn" class="btn primary" type="button">Add</button>
-              <button id="removePlayerBtn" class="btn danger" type="button">Remove</button>
-            </div>
-            <div id="whitelistMessage" class="status-line" role="status" aria-live="polite"></div>
-            <div id="whitelistTable" class="table-wrap"></div>
-          </div>
-        </section>
-
-        <section class="panel" aria-labelledby="logsHeading">
-          <div class="panel-header">
-            <h2 id="logsHeading">Logs</h2>
-          </div>
-          <div class="panel-body">
-            <div class="form-row">
-              <div class="field" style="width: 130px">
-                <label for="logLines">Lines</label>
-                <input id="logLines" inputmode="numeric" value="200" />
-              </div>
-              <button id="logsBtn" class="btn" type="button">Refresh Logs</button>
-            </div>
-            <pre id="logs"></pre>
-          </div>
-        </section>
-      </div>
     </main>
 
     <script>
@@ -770,6 +821,7 @@
         logLines: document.getElementById("logLines"),
         logs: document.getElementById("logs"),
         logsBtn: document.getElementById("logsBtn"),
+        logoutBtn: document.getElementById("logoutBtn"),
         newServerBtn: document.getElementById("newServerBtn"),
         operationMessage: document.getElementById("operationMessage"),
         playerInput: document.getElementById("playerInput"),
@@ -883,6 +935,10 @@
           }
 
           if (!response.ok) {
+            if (response.status === 401) {
+              window.location.href = "/login";
+              return {};
+            }
             throw new Error(data.error || data.raw || `${response.status} ${response.statusText}`);
           }
 
@@ -940,6 +996,15 @@
       function formatRestartPolicy(policy = {}) {
         if (!policy.Name) return "No restart policy";
         return policy.MaximumRetryCount ? `${policy.Name} (${policy.MaximumRetryCount})` : policy.Name;
+      }
+
+      function showTab(tabName) {
+        document.querySelectorAll("[data-tab]").forEach((button) => {
+          button.setAttribute("aria-selected", button.dataset.tab === tabName ? "true" : "false");
+        });
+        document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
+          panel.classList.toggle("hidden", panel.dataset.tabPanel !== tabName);
+        });
       }
 
       function getCurrentServer() {
@@ -1389,6 +1454,13 @@
       }
 
       el.refreshBtn.addEventListener("click", refresh);
+      el.logoutBtn.addEventListener("click", async () => {
+        await fetch("/api/logout", { method: "POST" }).catch(() => null);
+        window.location.href = "/login";
+      });
+      document.querySelectorAll("[data-tab]").forEach((button) => {
+        button.addEventListener("click", () => showTab(button.dataset.tab));
+      });
       el.loadContainersBtn.addEventListener("click", listContainers);
       el.useTargetBtn.addEventListener("click", useTarget);
       el.serverSelect.addEventListener("change", async () => {

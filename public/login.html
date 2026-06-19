@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Minecraft Server Control Login</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101311;
+        --surface: #171c19;
+        --border: #344034;
+        --text: #edf4ed;
+        --muted: #aebbae;
+        --green: #49bf73;
+        --green-soft: rgba(73, 191, 115, 0.16);
+        --red: #df655b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        display: grid;
+        min-height: 100vh;
+        margin: 0;
+        place-items: center;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        width: min(420px, calc(100% - 32px));
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+        padding: 24px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 1.35rem;
+      }
+
+      p {
+        margin: 8px 0 22px;
+        color: var(--muted);
+      }
+
+      label {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      input,
+      button {
+        width: 100%;
+        min-height: 42px;
+        border-radius: 8px;
+        font: inherit;
+      }
+
+      input {
+        border: 1px solid var(--border);
+        background: #0f140f;
+        color: var(--text);
+        padding: 9px 11px;
+      }
+
+      input:focus {
+        border-color: var(--green);
+        box-shadow: 0 0 0 3px var(--green-soft);
+        outline: none;
+      }
+
+      button {
+        margin-top: 14px;
+        border: 1px solid #5ebf7d;
+        background: #26673f;
+        color: var(--text);
+        cursor: pointer;
+        font-weight: 750;
+      }
+
+      #message {
+        min-height: 22px;
+        margin-top: 12px;
+        color: var(--red);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Minecraft Server Control</h1>
+      <p>Enter the admin password to continue.</p>
+      <form id="loginForm">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" autofocus />
+        <button type="submit">Sign In</button>
+        <div id="message" role="status" aria-live="polite"></div>
+      </form>
+    </main>
+
+    <script>
+      document.getElementById("loginForm").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = document.getElementById("message");
+        message.textContent = "";
+
+        const response = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: document.getElementById("password").value }),
+        });
+
+        if (response.ok) {
+          window.location.href = "/";
+          return;
+        }
+
+        const data = await response.json().catch(() => ({}));
+        message.textContent = data.error || "Login failed";
+      });
+    </script>
+  </body>
+</html>

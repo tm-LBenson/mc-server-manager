@@ -1,5 +1,6 @@
 import express from "express";
 import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -19,6 +20,9 @@ const DEFAULT_DOCKER_TIMEOUT_MS = Number.parseInt(process.env.DOCKER_TIMEOUT_MS 
 const QUICK_DOCKER_TIMEOUT_MS = Number.parseInt(process.env.DOCKER_QUICK_TIMEOUT_MS || "6000", 10);
 const SSH_CONNECT_TIMEOUT_SECONDS = Number.parseInt(process.env.SSH_CONNECT_TIMEOUT_SECONDS || "10", 10);
 const SSH_STRICT_HOST_KEY_CHECKING = process.env.SSH_STRICT_HOST_KEY_CHECKING || "accept-new";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "techtavern";
+const AUTH_COOKIE = "mcsm_auth";
+const AUTH_TOKEN = randomBytes(32).toString("hex");
 
 const normalizeTimeout = (value, fallback) => (Number.isFinite(value) && value > 0 ? value : fallback);
 
@@ -122,6 +126,68 @@ const saveServers = async () => {
 };
 
 await loadServers();
+
+const parseCookies = (header = "") =>
+  Object.fromEntries(
+    header
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const index = part.indexOf("=");
+        return index === -1 ? [part, ""] : [part.slice(0, index), decodeURIComponent(part.slice(index + 1))];
+      }),
+  );
+
+const isAuthenticated = (req) => parseCookies(req.headers.cookie || "")[AUTH_COOKIE] === AUTH_TOKEN;
+
+const authCookieOptions = (req) => {
+  const secure = req.secure || req.headers["x-forwarded-proto"] === "https";
+  return [
+    `${AUTH_COOKIE}=${encodeURIComponent(AUTH_TOKEN)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    secure ? "Secure" : "",
+    "Max-Age=2592000",
+  ]
+    .filter(Boolean)
+    .join("; ");
+};
+
+app.get("/login", (req, res) => {
+  if (isAuthenticated(req)) return res.redirect("/");
+  res.sendFile(path.join(__dirname, "public", "login.html"));
+});
+
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
+app.get("/api/session", (req, res) => {
+  res.json({ authenticated: isAuthenticated(req) });
+});
+
+app.post("/api/login", (req, res) => {
+  const password = String(req.body?.password || "");
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: "Invalid password" });
+  }
+
+  res.setHeader("Set-Cookie", authCookieOptions(req));
+  res.json({ ok: true });
+});
+
+app.post("/api/logout", (_req, res) => {
+  res.setHeader("Set-Cookie", `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  res.json({ ok: true });
+});
+
+app.use((req, res, next) => {
+  if (isAuthenticated(req)) return next();
+  if (req.path.startsWith("/api/")) return res.status(401).json({ error: "Authentication required" });
+  return res.redirect("/login");
+});
 
 const hostLabel = (server) => {
   if (!server) return "unknown";
@@ -666,10 +732,6 @@ app.get("/api/logs", async (req, res) => {
   } catch (error) {
     res.status(500).type("text/plain").send(String(error.message || error));
   }
-});
-
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
 });
 
 // serve static UI
