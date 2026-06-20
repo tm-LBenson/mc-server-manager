@@ -356,66 +356,75 @@ const sendServerCommand = async (server, containerInspect, args) => {
   throw new Error(`unsupported container image for server commands: ${containerInspect.Config?.Image || "unknown"}`);
 };
 
-const assertServerProperty = (key, value = "true") => {
+const assertServerProperty = (key) => {
   if (!/^[a-z0-9_.-]+$/i.test(key)) throw new Error(`invalid server property: ${key}`);
-  if (!/^[a-z0-9_.-]+$/i.test(value)) throw new Error(`invalid server property value: ${value}`);
 };
 
-const readServerProperty = async (server, key) => {
-  assertServerProperty(key);
-
-  try {
-    const out = await runQuick(
-      server,
-      "exec",
-      server.container,
-      "sh",
-      "-lc",
-      `test -f /data/server.properties && awk -F= '$1 == "${key}" { print substr($0, length($1) + 2); exit }' /data/server.properties || true`,
-    );
-    return out.trim() || null;
-  } catch {
-    return null;
-  }
+const normalizeServerPropertyValue = (value) => {
+  const normalized = String(value ?? "").trim();
+  if (/[\r\n]/.test(normalized)) throw new Error("server property values cannot contain line breaks");
+  if (normalized.length > 240) throw new Error("server property values must be 240 characters or less");
+  return normalized;
 };
 
 const writeServerProperty = async (server, key, value) => {
-  assertServerProperty(key, value);
+  assertServerProperty(key);
+  const normalized = normalizeServerPropertyValue(value);
   const script = [
     "set -e",
     "file=/data/server.properties",
+    "key=$1",
+    "value=$2",
     'touch "$file"',
-    `if grep -q '^${key}=' "$file"; then`,
-    `  sed -i 's|^${key}=.*|${key}=${value}|' "$file"`,
-    "else",
-    `  printf '\\n${key}=${value}\\n' >> "$file"`,
-    "fi",
+    'tmp="${file}.tmp.$$"',
+    "awk -v key=\"$key\" -v value=\"$value\" '",
+    "BEGIN { updated = 0 }",
+    "index($0, key \"=\") == 1 { print key \"=\" value; updated = 1; next }",
+    "{ print }",
+    "END { if (!updated) print key \"=\" value }",
+    "' \"$file\" > \"$tmp\"",
+    'cat "$tmp" > "$file"',
+    'rm -f "$tmp"',
   ].join("\n");
 
-  await run(server, "exec", server.container, "sh", "-lc", script);
+  await run(server, "exec", server.container, "sh", "-lc", script, "set-property", key, normalized);
 };
 
-const fileDifficulty = (server) => readServerProperty(server, "difficulty");
-const filePvp = (server) => readServerProperty(server, "pvp");
+const parseServerProperties = (raw = "") =>
+  Object.fromEntries(
+    raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#") && line.includes("="))
+      .map((line) => {
+        const index = line.indexOf("=");
+        return [line.slice(0, index), line.slice(index + 1)];
+      }),
+  );
 
-const cleanServerDisplayName = (value) =>
-  String(value || "")
-    .replace(/\\u00a7[0-9a-fk-or]/gi, "")
-    .replace(/\u00a7[0-9a-fk-or]/gi, "")
-    .replace(/\\n/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const firstServerProperty = async (server, keys) => {
-  for (const key of keys) {
-    const value = cleanServerDisplayName(await readServerProperty(server, key));
-    if (value) return value;
+const readServerProperties = async (server) => {
+  try {
+    const raw = await runQuick(server, "exec", server.container, "sh", "-lc", "test -f /data/server.properties && cat /data/server.properties || true");
+    return parseServerProperties(raw);
+  } catch {
+    return {};
   }
-  return null;
 };
 
-const serverConfigDisplayName = (server, edition) =>
-  firstServerProperty(server, edition === "bedrock" ? ["server-name", "motd", "level-name"] : ["motd", "server-name", "level-name"]);
+const EDITABLE_SERVER_PROPERTIES = new Set([
+  "allow-flight",
+  "difficulty",
+  "gamemode",
+  "level-name",
+  "max-players",
+  "motd",
+  "online-mode",
+  "pvp",
+  "server-name",
+  "simulation-distance",
+  "spawn-protection",
+  "view-distance",
+]);
 
 const readWhitelistFile = async (server) => {
   const { i, edition } = await getContainerMeta(server);
@@ -465,13 +474,7 @@ const listManagedContainers = async (server) => {
       return { id, name, image, status: rest.join(" "), edition: detectEdition(image) };
     })
     .filter((container) => isManagedMinecraftImage(container.image));
-
-  return Promise.all(
-    rows.map(async (container) => {
-      const displayName = await serverConfigDisplayName({ ...server, container: container.name }, container.edition);
-      return { ...container, displayName: displayName || container.name };
-    }),
-  );
+  return rows;
 };
 
 // -------- API --------
@@ -527,12 +530,10 @@ app.get("/api/info", async (req, res) => {
     const i = await inspect(server);
     const env = envListToObject(i.Config?.Env || []);
     const edition = detectEdition(i.Config?.Image || "");
-    const configDisplayName = await serverConfigDisplayName(server, edition);
+    const properties = await readServerProperties(server);
     res.json({
       serverId: server.id,
       serverLabel: server.label,
-      displayName: configDisplayName || server.label || i.Name?.replace(/^\//, ""),
-      configDisplayName,
       hostLabel: hostLabel(server),
       target: server.container,
       name: i.Name?.replace(/^\//, ""),
@@ -541,8 +542,11 @@ app.get("/api/info", async (req, res) => {
       edition,
       envDifficulty: env.DIFFICULTY ?? null,
       envPvp: env.PVP ?? null,
-      fileDifficulty: await fileDifficulty(server),
-      filePvp: await filePvp(server),
+      fileDifficulty: properties.difficulty || null,
+      filePvp: properties.pvp || null,
+      motd: properties.motd || null,
+      serverName: properties["server-name"] || null,
+      serverProperties: properties,
       ports: i.HostConfig?.PortBindings || {},
       mounts: (i.Mounts || []).map((m) => ({
         type: m.Type,
@@ -659,6 +663,28 @@ app.post("/api/pvp", async (req, res) => {
     await run(server, "restart", server.container);
 
     res.json({ ok: true, enabled, filePvp: enabled ? "true" : "false", restarted: true });
+  } catch (error) {
+    res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
+app.post("/api/properties", async (req, res) => {
+  try {
+    const server = resolveServer(req.body);
+    const updates = req.body?.properties && typeof req.body.properties === "object" ? req.body.properties : {};
+    const entries = Object.entries(updates).filter(([key, value]) => EDITABLE_SERVER_PROPERTIES.has(key) && value != null && String(value).trim() !== "");
+    if (!entries.length) return res.status(400).json({ error: "no editable server properties provided" });
+
+    const { i } = await getContainerMeta(server);
+    ensureRunning(i);
+
+    for (const [key, value] of entries) {
+      await writeServerProperty(server, key, value);
+    }
+
+    const properties = await readServerProperties(server);
+    await run(server, "restart", server.container);
+    res.json({ ok: true, restarted: true, properties });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
   }

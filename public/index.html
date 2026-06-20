@@ -46,7 +46,8 @@
 
       button,
       input,
-      select {
+      select,
+      textarea {
         font: inherit;
       }
 
@@ -323,7 +324,8 @@
       }
 
       input,
-      select {
+      select,
+      textarea {
         width: 100%;
         min-height: 40px;
         border: 1px solid var(--border);
@@ -335,9 +337,15 @@
       }
 
       input:focus,
-      select:focus {
+      select:focus,
+      textarea:focus {
         border-color: var(--green);
         box-shadow: 0 0 0 3px var(--green-soft);
+      }
+
+      textarea {
+        min-height: 84px;
+        resize: vertical;
       }
 
       .btn {
@@ -851,6 +859,89 @@
             </div>
           </div>
         </section>
+        <section class="panel" aria-labelledby="propertiesHeading">
+          <div class="panel-header">
+            <h2 id="propertiesHeading">Minecraft Settings</h2>
+            <button id="savePropertiesBtn" class="btn primary" type="button">Save & Restart</button>
+          </div>
+          <div class="panel-body">
+            <div class="connection-grid">
+              <div class="field">
+                <label for="propertyServerNameInput">Server Name</label>
+                <input id="propertyServerNameInput" autocomplete="off" placeholder="Tech Tavern" />
+              </div>
+              <div class="field wide">
+                <label for="propertyMotdInput">MOTD</label>
+                <textarea id="propertyMotdInput" autocomplete="off" placeholder="Welcome to the server"></textarea>
+              </div>
+              <div class="field">
+                <label for="propertyLevelNameInput">Level Name</label>
+                <input id="propertyLevelNameInput" autocomplete="off" placeholder="world" />
+              </div>
+              <div class="field">
+                <label for="propertyGamemodeSelect">Game Mode</label>
+                <select id="propertyGamemodeSelect">
+                  <option value="">-</option>
+                  <option value="survival">Survival</option>
+                  <option value="creative">Creative</option>
+                  <option value="adventure">Adventure</option>
+                  <option value="spectator">Spectator</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="propertyDifficultySelect">Difficulty</label>
+                <select id="propertyDifficultySelect">
+                  <option value="">-</option>
+                  <option value="peaceful">Peaceful</option>
+                  <option value="easy">Easy</option>
+                  <option value="normal">Normal</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="propertyMaxPlayersInput">Max Players</label>
+                <input id="propertyMaxPlayersInput" inputmode="numeric" placeholder="20" />
+              </div>
+              <div class="field">
+                <label for="propertyPvpSelect">PVP</label>
+                <select id="propertyPvpSelect">
+                  <option value="">-</option>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="propertyOnlineModeSelect">Online Mode</label>
+                <select id="propertyOnlineModeSelect">
+                  <option value="">-</option>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="propertyAllowFlightSelect">Allow Flight</label>
+                <select id="propertyAllowFlightSelect">
+                  <option value="">-</option>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="propertySpawnProtectionInput">Spawn Protection</label>
+                <input id="propertySpawnProtectionInput" inputmode="numeric" placeholder="16" />
+              </div>
+              <div class="field">
+                <label for="propertyViewDistanceInput">View Distance</label>
+                <input id="propertyViewDistanceInput" inputmode="numeric" placeholder="10" />
+              </div>
+              <div class="field">
+                <label for="propertySimulationDistanceInput">Simulation Distance</label>
+                <input id="propertySimulationDistanceInput" inputmode="numeric" placeholder="10" />
+              </div>
+            </div>
+            <div id="propertiesMessage" class="status-line" role="status" aria-live="polite"></div>
+          </div>
+        </section>
       </section>
     </main>
 
@@ -904,6 +995,19 @@
         operationMessage: document.getElementById("operationMessage"),
         playerInput: document.getElementById("playerInput"),
         portsMetric: document.getElementById("portsMetric"),
+        propertiesMessage: document.getElementById("propertiesMessage"),
+        propertyAllowFlightSelect: document.getElementById("propertyAllowFlightSelect"),
+        propertyDifficultySelect: document.getElementById("propertyDifficultySelect"),
+        propertyGamemodeSelect: document.getElementById("propertyGamemodeSelect"),
+        propertyLevelNameInput: document.getElementById("propertyLevelNameInput"),
+        propertyMaxPlayersInput: document.getElementById("propertyMaxPlayersInput"),
+        propertyMotdInput: document.getElementById("propertyMotdInput"),
+        propertyOnlineModeSelect: document.getElementById("propertyOnlineModeSelect"),
+        propertyPvpSelect: document.getElementById("propertyPvpSelect"),
+        propertyServerNameInput: document.getElementById("propertyServerNameInput"),
+        propertySimulationDistanceInput: document.getElementById("propertySimulationDistanceInput"),
+        propertySpawnProtectionInput: document.getElementById("propertySpawnProtectionInput"),
+        propertyViewDistanceInput: document.getElementById("propertyViewDistanceInput"),
         refreshBtn: document.getElementById("refreshBtn"),
         removePlayerBtn: document.getElementById("removePlayerBtn"),
         renameBtn: document.getElementById("renameBtn"),
@@ -921,6 +1025,7 @@
         serverSelect: document.getElementById("serverSelect"),
         serverTypeSelect: document.getElementById("serverTypeSelect"),
         serverUserInput: document.getElementById("serverUserInput"),
+        savePropertiesBtn: document.getElementById("savePropertiesBtn"),
         startBtn: document.getElementById("startBtn"),
         stateDot: document.getElementById("stateDot"),
         stateMetric: document.getElementById("stateMetric"),
@@ -948,6 +1053,7 @@
         el.renameBtn,
         el.restartBtn,
         el.deleteServerBtn,
+        el.savePropertiesBtn,
         el.saveServerBtn,
         el.startBtn,
         el.stopBtn,
@@ -1108,8 +1214,8 @@
         return "n/a";
       }
 
-      function displayNameFor(item = {}) {
-        return item.displayName || item.configDisplayName || item.serverLabel || item.name || item.target || "-";
+      function propertyValue(info, key) {
+        return info.serverProperties?.[key] || "-";
       }
 
       function showTab(tabName) {
@@ -1189,7 +1295,7 @@
         el.stateDot.classList.toggle("running", running);
         el.stateDot.classList.toggle("stopped", !running);
         setText(el.statePill, info.state || "unknown");
-        setText(el.targetPill, displayNameFor(info));
+        setText(el.targetPill, info.target || info.name);
         setText(el.editionPill, info.edition || "unknown");
         setText(el.hostPill, info.hostLabel || "local Docker");
 
@@ -1213,12 +1319,16 @@
 
       function renderDetails(info) {
         const rows = [
-          ["Display Name", displayNameFor(info)],
           ["Container", info.name],
           ["Server", info.serverLabel],
           ["Host", info.hostLabel],
           ["Target", info.target],
           ["Edition", info.edition],
+          ["Server Name", info.serverName || "-"],
+          ["MOTD", info.motd || "-"],
+          ["Level Name", propertyValue(info, "level-name")],
+          ["Game Mode", propertyValue(info, "gamemode")],
+          ["Max Players", propertyValue(info, "max-players")],
           ["Image", info.image],
           ["State", info.state],
           ["PVP", formatPvp(info)],
@@ -1236,6 +1346,45 @@
           el.detailsList.append(dt, dd);
         });
         el.detailsRaw.textContent = JSON.stringify(info, null, 2);
+      }
+
+      function renderProperties(info) {
+        const properties = info.serverProperties || {};
+        el.propertyServerNameInput.value = properties["server-name"] || "";
+        el.propertyMotdInput.value = properties.motd || "";
+        el.propertyLevelNameInput.value = properties["level-name"] || "";
+        el.propertyGamemodeSelect.value = properties.gamemode || "";
+        el.propertyDifficultySelect.value = properties.difficulty || info.fileDifficulty || "";
+        el.propertyMaxPlayersInput.value = properties["max-players"] || "";
+        el.propertyPvpSelect.value = properties.pvp || "";
+        el.propertyOnlineModeSelect.value = properties["online-mode"] || "";
+        el.propertyAllowFlightSelect.value = properties["allow-flight"] || "";
+        el.propertySpawnProtectionInput.value = properties["spawn-protection"] || "";
+        el.propertyViewDistanceInput.value = properties["view-distance"] || "";
+        el.propertySimulationDistanceInput.value = properties["simulation-distance"] || "";
+      }
+
+      function collectProperties() {
+        const properties = {};
+        const set = (key, value) => {
+          const normalized = String(value || "").trim();
+          if (normalized) properties[key] = normalized;
+        };
+
+        set("server-name", el.propertyServerNameInput.value);
+        set("motd", el.propertyMotdInput.value);
+        set("level-name", el.propertyLevelNameInput.value);
+        set("gamemode", el.propertyGamemodeSelect.value);
+        set("difficulty", el.propertyDifficultySelect.value);
+        set("max-players", el.propertyMaxPlayersInput.value);
+        set("pvp", el.propertyPvpSelect.value);
+        set("online-mode", el.propertyOnlineModeSelect.value);
+        set("allow-flight", el.propertyAllowFlightSelect.value);
+        set("spawn-protection", el.propertySpawnProtectionInput.value);
+        set("view-distance", el.propertyViewDistanceInput.value);
+        set("simulation-distance", el.propertySimulationDistanceInput.value);
+
+        return properties;
       }
 
       function renderWhitelist(data) {
@@ -1290,7 +1439,7 @@
         el.containerSelect.replaceChildren(new Option("Known containers", ""));
         containers.forEach((container) => {
           const edition = container.edition && container.edition !== "unknown" ? `${container.edition} - ` : "";
-          const option = new Option(`${displayNameFor(container)} - ${edition}${container.status}`, container.name);
+          const option = new Option(`${container.name} - ${edition}${container.status}`, container.name);
           el.containerSelect.add(option);
         });
 
@@ -1310,7 +1459,7 @@
         const thead = document.createElement("thead");
         const tbody = document.createElement("tbody");
         const header = document.createElement("tr");
-        ["Server Name", "Container", "Edition", "Image", "Status"].forEach((text) => {
+        ["Name", "Edition", "Image", "Status"].forEach((text) => {
           const th = document.createElement("th");
           th.textContent = text;
           header.append(th);
@@ -1323,7 +1472,7 @@
           row.addEventListener("click", () => {
             selectContainer(container);
           });
-          [displayNameFor(container), container.name, container.edition, container.image, container.status].forEach((text) => {
+          [container.name, container.edition, container.image, container.status].forEach((text) => {
             const td = document.createElement("td");
             td.textContent = text || "-";
             row.append(td);
@@ -1357,6 +1506,7 @@
         el.serverContainerInput.value = state.activeTarget;
         renderStatus(info);
         renderDetails(info);
+        renderProperties(info);
         loadWhitelist();
         return info;
       }
@@ -1374,7 +1524,7 @@
         el.targetInput.value = state.activeTarget;
         el.serverContainerInput.value = state.activeTarget;
         await loadInfo();
-        setMessage(el.targetMessage, `Defaulted to ${displayNameFor(selected)}`, "success");
+        setMessage(el.targetMessage, `Defaulted to ${selected.name}`, "success");
         return true;
       }
 
@@ -1406,7 +1556,7 @@
             const data = await api("/api/containers");
             const selected = renderContainers(data.containers || []);
             const count = (data.containers || []).length;
-            const suffix = selected ? `; ${displayNameFor(selected)} selected` : "";
+            const suffix = selected ? `; ${selected.name} selected` : "";
             setMessage(el.targetMessage, `${count} Minecraft container${count === 1 ? "" : "s"} loaded${suffix}`, "success");
           } catch (error) {
             setMessage(el.targetMessage, error.message, "error");
@@ -1494,6 +1644,33 @@
             await refresh();
           } catch (error) {
             setMessage(el.targetMessage, error.message, "error");
+          }
+        });
+      }
+
+      async function saveProperties() {
+        const properties = collectProperties();
+        if (!Object.keys(properties).length) {
+          setMessage(el.propertiesMessage, "Enter at least one setting", "error");
+          return;
+        }
+
+        const confirmed = await confirmAction({
+          title: "Save Minecraft settings",
+          message: "This will update server.properties and restart the Minecraft container so the settings apply.",
+          confirmText: "Save",
+        });
+        if (!confirmed) return;
+
+        return withBusy("properties", async () => {
+          setMessage(el.propertiesMessage, "Saving Minecraft settings...");
+          try {
+            await post("/api/properties", { ...currentRequestTarget(), properties }, 70000);
+            await new Promise((resolve) => setTimeout(resolve, 1400));
+            await refresh();
+            setMessage(el.propertiesMessage, "Minecraft settings saved", "success");
+          } catch (error) {
+            setMessage(el.propertiesMessage, error.message, "error");
           }
         });
       }
@@ -1674,6 +1851,7 @@
       el.serverTypeSelect.addEventListener("change", toggleSshFields);
       el.newServerBtn.addEventListener("click", newServerForm);
       el.saveServerBtn.addEventListener("click", saveServer);
+      el.savePropertiesBtn.addEventListener("click", saveProperties);
       el.deleteServerBtn.addEventListener("click", deleteServer);
       el.containerSelect.addEventListener("change", () => {
         if (!el.containerSelect.value) return;
