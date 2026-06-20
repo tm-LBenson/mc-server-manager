@@ -398,6 +398,25 @@ const writeServerProperty = async (server, key, value) => {
 const fileDifficulty = (server) => readServerProperty(server, "difficulty");
 const filePvp = (server) => readServerProperty(server, "pvp");
 
+const cleanServerDisplayName = (value) =>
+  String(value || "")
+    .replace(/\\u00a7[0-9a-fk-or]/gi, "")
+    .replace(/\u00a7[0-9a-fk-or]/gi, "")
+    .replace(/\\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const firstServerProperty = async (server, keys) => {
+  for (const key of keys) {
+    const value = cleanServerDisplayName(await readServerProperty(server, key));
+    if (value) return value;
+  }
+  return null;
+};
+
+const serverConfigDisplayName = (server, edition) =>
+  firstServerProperty(server, edition === "bedrock" ? ["server-name", "motd", "level-name"] : ["motd", "server-name", "level-name"]);
+
 const readWhitelistFile = async (server) => {
   const { i, edition } = await getContainerMeta(server);
   if (edition === "unknown") {
@@ -437,7 +456,7 @@ const updateServerContainer = async (serverId, container) => {
 
 const listManagedContainers = async (server) => {
   const out = await run(server, "ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}");
-  return out
+  const rows = out
     .trim()
     .split(/\r?\n/)
     .filter(Boolean)
@@ -446,6 +465,13 @@ const listManagedContainers = async (server) => {
       return { id, name, image, status: rest.join(" "), edition: detectEdition(image) };
     })
     .filter((container) => isManagedMinecraftImage(container.image));
+
+  return Promise.all(
+    rows.map(async (container) => {
+      const displayName = await serverConfigDisplayName({ ...server, container: container.name }, container.edition);
+      return { ...container, displayName: displayName || container.name };
+    }),
+  );
 };
 
 // -------- API --------
@@ -501,9 +527,12 @@ app.get("/api/info", async (req, res) => {
     const i = await inspect(server);
     const env = envListToObject(i.Config?.Env || []);
     const edition = detectEdition(i.Config?.Image || "");
+    const configDisplayName = await serverConfigDisplayName(server, edition);
     res.json({
       serverId: server.id,
       serverLabel: server.label,
+      displayName: configDisplayName || server.label || i.Name?.replace(/^\//, ""),
+      configDisplayName,
       hostLabel: hostLabel(server),
       target: server.container,
       name: i.Name?.replace(/^\//, ""),

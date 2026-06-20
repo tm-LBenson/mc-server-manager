@@ -1108,6 +1108,10 @@
         return "n/a";
       }
 
+      function displayNameFor(item = {}) {
+        return item.displayName || item.configDisplayName || item.serverLabel || item.name || item.target || "-";
+      }
+
       function showTab(tabName) {
         document.querySelectorAll("[data-tab]").forEach((button) => {
           button.setAttribute("aria-selected", button.dataset.tab === tabName ? "true" : "false");
@@ -1185,7 +1189,7 @@
         el.stateDot.classList.toggle("running", running);
         el.stateDot.classList.toggle("stopped", !running);
         setText(el.statePill, info.state || "unknown");
-        setText(el.targetPill, info.target || info.name);
+        setText(el.targetPill, displayNameFor(info));
         setText(el.editionPill, info.edition || "unknown");
         setText(el.hostPill, info.hostLabel || "local Docker");
 
@@ -1209,6 +1213,7 @@
 
       function renderDetails(info) {
         const rows = [
+          ["Display Name", displayNameFor(info)],
           ["Container", info.name],
           ["Server", info.serverLabel],
           ["Host", info.hostLabel],
@@ -1285,7 +1290,7 @@
         el.containerSelect.replaceChildren(new Option("Known containers", ""));
         containers.forEach((container) => {
           const edition = container.edition && container.edition !== "unknown" ? `${container.edition} - ` : "";
-          const option = new Option(`${container.name} - ${edition}${container.status}`, container.name);
+          const option = new Option(`${displayNameFor(container)} - ${edition}${container.status}`, container.name);
           el.containerSelect.add(option);
         });
 
@@ -1305,7 +1310,7 @@
         const thead = document.createElement("thead");
         const tbody = document.createElement("tbody");
         const header = document.createElement("tr");
-        ["Name", "Edition", "Image", "Status"].forEach((text) => {
+        ["Server Name", "Container", "Edition", "Image", "Status"].forEach((text) => {
           const th = document.createElement("th");
           th.textContent = text;
           header.append(th);
@@ -1318,7 +1323,7 @@
           row.addEventListener("click", () => {
             selectContainer(container);
           });
-          [container.name, container.edition, container.image, container.status].forEach((text) => {
+          [displayNameFor(container), container.name, container.edition, container.image, container.status].forEach((text) => {
             const td = document.createElement("td");
             td.textContent = text || "-";
             row.append(td);
@@ -1369,7 +1374,7 @@
         el.targetInput.value = state.activeTarget;
         el.serverContainerInput.value = state.activeTarget;
         await loadInfo();
-        setMessage(el.targetMessage, `Defaulted to ${selected.name}`, "success");
+        setMessage(el.targetMessage, `Defaulted to ${displayNameFor(selected)}`, "success");
         return true;
       }
 
@@ -1401,7 +1406,7 @@
             const data = await api("/api/containers");
             const selected = renderContainers(data.containers || []);
             const count = (data.containers || []).length;
-            const suffix = selected ? `; ${selected.name} selected` : "";
+            const suffix = selected ? `; ${displayNameFor(selected)} selected` : "";
             setMessage(el.targetMessage, `${count} Minecraft container${count === 1 ? "" : "s"} loaded${suffix}`, "success");
           } catch (error) {
             setMessage(el.targetMessage, error.message, "error");
