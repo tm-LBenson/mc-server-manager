@@ -479,6 +479,58 @@ const updateServerContainer = async (serverId, container) => {
   return server;
 };
 
+const envWithUpdates = (currentEnv = [], updates = {}) => {
+  const keys = Object.keys(updates);
+  const nextEnv = (currentEnv || []).filter((entry) => !keys.some((key) => entry.startsWith(`${key}=`)));
+
+  for (const [key, value] of Object.entries(updates)) {
+    if (value == null || value === "") continue;
+    nextEnv.push(`${key}=${value}`);
+  }
+
+  if (!nextEnv.some((entry) => entry.startsWith("EULA="))) nextEnv.push("EULA=TRUE");
+  return nextEnv;
+};
+
+const recreateContainerWithEnv = async (server, containerInspect, envUpdates) => {
+  const env = envWithUpdates(containerInspect.Config?.Env || [], envUpdates);
+
+  const portFlags = [];
+  const portBindings = containerInspect.HostConfig?.PortBindings || {};
+  for (const [key, binds] of Object.entries(portBindings)) {
+    if (!Array.isArray(binds)) continue;
+    for (const bind of binds) {
+      if (!bind?.HostPort) continue;
+      const hostIp = bind.HostIp && bind.HostIp !== "0.0.0.0" ? `${bind.HostIp}:` : "";
+      portFlags.push("-p", `${hostIp}${bind.HostPort}:${key}`);
+    }
+  }
+
+  const volumeFlags = [];
+  for (const mount of containerInspect.Mounts || []) {
+    const source = mount.Type === "volume" ? mount.Name || mount.Source : mount.Source;
+    const mode = mount.RW ? "" : ":ro";
+    volumeFlags.push("-v", `${source}:${mount.Destination}${mode}`);
+  }
+
+  const envFlags = env.flatMap((entry) => ["-e", entry]);
+  const restartName = containerInspect.HostConfig?.RestartPolicy?.Name || "unless-stopped";
+  const image = containerInspect.Config?.Image || "itzg/minecraft-server:latest";
+  const name = containerInspect.Name?.replace(/^\//, "") || server.container;
+
+  try {
+    await run(server, "stop", name);
+  } catch {}
+  try {
+    await run(server, "rm", "-f", name);
+  } catch {}
+
+  await run(server, "run", "-d", "--name", name, ...portFlags, ...volumeFlags, ...envFlags, "--restart", restartName, image);
+  await updateServerContainer(server.id, name);
+
+  return name;
+};
+
 const listManagedContainers = async (server) => {
   const out = await run(server, "ps", "-a", "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}");
   const rows = out
@@ -558,6 +610,7 @@ app.get("/api/info", async (req, res) => {
       edition,
       envDifficulty: env.DIFFICULTY ?? null,
       envPvp: env.PVP ?? null,
+      envHardcore: env.HARDCORE ?? null,
       fileDifficulty: properties.difficulty || null,
       filePvp: properties.pvp || null,
       fileHardcore: properties.hardcore || null,
@@ -610,7 +663,6 @@ app.post("/api/stop", async (req, res) => {
   }
 });
 
-// Change difficulty by recreating the container with updated DIFFICULTY, preserving ports and volumes.
 app.post("/api/difficulty", async (req, res) => {
   try {
     const server = resolveServer(req.body);
@@ -620,44 +672,7 @@ app.post("/api/difficulty", async (req, res) => {
     }
 
     const i = await inspect(server);
-
-    const env = (i.Config?.Env || []).filter((entry) => !entry.startsWith("DIFFICULTY="));
-    env.push(`DIFFICULTY=${level}`);
-    if (!env.some((entry) => entry.startsWith("EULA="))) env.push("EULA=TRUE");
-
-    const portFlags = [];
-    const pb = i.HostConfig?.PortBindings || {};
-    for (const [key, binds] of Object.entries(pb)) {
-      if (!Array.isArray(binds)) continue;
-      for (const bind of binds) {
-        if (!bind?.HostPort) continue;
-        const hostIp = bind.HostIp && bind.HostIp !== "0.0.0.0" ? `${bind.HostIp}:` : "";
-        portFlags.push("-p", `${hostIp}${bind.HostPort}:${key}`);
-      }
-    }
-
-    const volFlags = [];
-    for (const mount of i.Mounts || []) {
-      const src = mount.Type === "volume" ? mount.Name || mount.Source : mount.Source;
-      const mode = mount.RW ? "" : ":ro";
-      volFlags.push("-v", `${src}:${mount.Destination}${mode}`);
-    }
-
-    const envFlags = env.flatMap((entry) => ["-e", entry]);
-    const restartName = i.HostConfig?.RestartPolicy?.Name || "unless-stopped";
-    const image = i.Config?.Image || "itzg/minecraft-server:latest";
-    const name = i.Name?.replace(/^\//, "") || server.container;
-
-    try {
-      await run(server, "stop", name);
-    } catch {}
-    try {
-      await run(server, "rm", "-f", name);
-    } catch {}
-
-    await run(server, "run", "-d", "--name", name, ...portFlags, ...volFlags, ...envFlags, "--restart", restartName, image);
-
-    await updateServerContainer(server.id, name);
+    const name = await recreateContainerWithEnv(server, i, { DIFFICULTY: level });
     res.json({ ok: true, newDifficulty: level, target: name, serverId: server.id });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
@@ -677,9 +692,9 @@ app.post("/api/pvp", async (req, res) => {
     ensureRunning(i);
 
     await writeServerProperty(server, "pvp", enabled ? "true" : "false");
-    await run(server, "restart", server.container);
+    const target = await recreateContainerWithEnv(server, i, { PVP: enabled ? "TRUE" : "FALSE" });
 
-    res.json({ ok: true, enabled, filePvp: enabled ? "true" : "false", restarted: true });
+    res.json({ ok: true, enabled, filePvp: enabled ? "true" : "false", recreated: true, target });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
   }
@@ -702,9 +717,9 @@ app.post("/api/hardcore", async (req, res) => {
     }
 
     await writeServerProperty(server, "hardcore", enabled ? "true" : "false");
-    await run(server, "restart", server.container);
+    const target = await recreateContainerWithEnv(server, i, { HARDCORE: enabled ? "TRUE" : "FALSE" });
 
-    res.json({ ok: true, enabled, fileHardcore: enabled ? "true" : "false", restarted: true });
+    res.json({ ok: true, enabled, fileHardcore: enabled ? "true" : "false", recreated: true, target });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
   }

@@ -1325,7 +1325,7 @@
       }
 
       function formatHardcore(info) {
-        const value = String(info.fileHardcore ?? "").toLowerCase();
+        const value = String(info.fileHardcore ?? info.envHardcore ?? "").toLowerCase();
         if (value === "true") return "Enabled";
         if (value === "false") return "Disabled";
         return "n/a";
@@ -1407,7 +1407,7 @@
       function renderStatus(info) {
         const running = Boolean(info.running);
         const difficulty = info.fileDifficulty || info.envDifficulty || "n/a";
-        const hardcore = String(info.fileHardcore ?? "").toLowerCase();
+        const hardcore = String(info.fileHardcore ?? info.envHardcore ?? "").toLowerCase();
         const pvp = String(info.filePvp ?? info.envPvp ?? "").toLowerCase();
 
         el.stateDot.classList.toggle("running", running);
@@ -1875,7 +1875,7 @@
         const verb = enabled ? "enable" : "disable";
         const confirmed = await confirmAction({
           title: `${enabled ? "Enable" : "Disable"} PVP`,
-          message: `This will ${verb} PVP in server.properties and restart the Minecraft container.`,
+          message: `This will ${verb} PVP in server.properties and recreate the Minecraft container with the updated startup setting.`,
           confirmText: enabled ? "Enable" : "Disable",
         });
         if (!confirmed) return;
@@ -1897,7 +1897,7 @@
         const verb = enabled ? "enable" : "disable";
         const confirmed = await confirmAction({
           title: `${enabled ? "Enable" : "Disable"} Hardcore`,
-          message: `This will ${verb} Hardcore in server.properties and restart the Minecraft container. Hardcore is safest before players start a new world.`,
+          message: `This will ${verb} Hardcore in server.properties and recreate the Minecraft container with the updated startup setting. Hardcore is safest before players start a new world.`,
           confirmText: enabled ? "Enable" : "Disable",
         });
         if (!confirmed) return;
