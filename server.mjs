@@ -368,6 +368,13 @@ const normalizeServerPropertyValue = (value) => {
   return normalized;
 };
 
+const parseBooleanFlag = (value, field = "enabled") => {
+  if (![true, false, "true", "false"].includes(value)) {
+    throw new Error(`${field} must be true or false`);
+  }
+  return value === true || value === "true";
+};
+
 const writeServerProperty = async (server, key, value) => {
   assertServerProperty(key);
   const normalized = normalizeServerPropertyValue(value);
@@ -553,6 +560,7 @@ app.get("/api/info", async (req, res) => {
       envPvp: env.PVP ?? null,
       fileDifficulty: properties.difficulty || null,
       filePvp: properties.pvp || null,
+      fileHardcore: properties.hardcore || null,
       motd: properties.motd || null,
       serverName: properties["server-name"] || null,
       serverProperties: properties,
@@ -659,12 +667,12 @@ app.post("/api/difficulty", async (req, res) => {
 app.post("/api/pvp", async (req, res) => {
   try {
     const server = resolveServer(req.body);
-    const rawEnabled = req.body?.enabled;
-    if (![true, false, "true", "false"].includes(rawEnabled)) {
-      return res.status(400).json({ error: "enabled must be true or false" });
+    let enabled;
+    try {
+      enabled = parseBooleanFlag(req.body?.enabled);
+    } catch (error) {
+      return res.status(400).json({ error: String(error.message || error) });
     }
-
-    const enabled = rawEnabled === true || rawEnabled === "true";
     const { i } = await getContainerMeta(server);
     ensureRunning(i);
 
@@ -672,6 +680,31 @@ app.post("/api/pvp", async (req, res) => {
     await run(server, "restart", server.container);
 
     res.json({ ok: true, enabled, filePvp: enabled ? "true" : "false", restarted: true });
+  } catch (error) {
+    res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
+app.post("/api/hardcore", async (req, res) => {
+  try {
+    const server = resolveServer(req.body);
+    let enabled;
+    try {
+      enabled = parseBooleanFlag(req.body?.enabled);
+    } catch (error) {
+      return res.status(400).json({ error: String(error.message || error) });
+    }
+    const { i, edition } = await getContainerMeta(server);
+    ensureRunning(i);
+
+    if (edition !== "java") {
+      return res.status(400).json({ error: "Hardcore mode is currently managed for Java servers only." });
+    }
+
+    await writeServerProperty(server, "hardcore", enabled ? "true" : "false");
+    await run(server, "restart", server.container);
+
+    res.json({ ok: true, enabled, fileHardcore: enabled ? "true" : "false", restarted: true });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
   }
@@ -813,6 +846,38 @@ app.post("/api/whitelist/remove", async (req, res) => {
       stdout: result.stdout || null,
       note: result.note || null,
       whitelist,
+    });
+  } catch (error) {
+    res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
+app.post("/api/player/unlock", async (req, res) => {
+  try {
+    const server = resolveServer(req.body);
+    const player = normalizePlayerName(req.body?.player);
+
+    const { i, edition } = await getContainerMeta(server);
+    ensureRunning(i);
+
+    const playerArg = edition === "bedrock" && /\s/.test(player) ? quoteCommandArg(player) : player;
+    let pardonNote = null;
+    if (edition === "java") {
+      try {
+        await sendServerCommand(server, i, ["pardon", player]);
+      } catch (error) {
+        pardonNote = String(error.message || error);
+      }
+    }
+
+    const result = await sendServerCommand(server, i, ["gamemode", "survival", playerArg]);
+
+    res.json({
+      ok: true,
+      edition,
+      player,
+      stdout: result.stdout || null,
+      note: result.note || (pardonNote ? "Player set to survival. Pardon was not needed or did not apply." : null),
     });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });

@@ -824,6 +824,7 @@
                 <input id="playerInput" autocomplete="off" placeholder="Java username or Bedrock GamerTag" />
               </div>
               <button id="addPlayerBtn" class="btn primary" type="button">Add</button>
+              <button id="unlockPlayerBtn" class="btn warning" type="button">Unlock</button>
               <button id="removePlayerBtn" class="btn danger" type="button">Remove</button>
             </div>
             <div id="whitelistMessage" class="status-line" role="status" aria-live="polite"></div>
@@ -860,6 +861,13 @@
                 <div class="segmented two" role="group" aria-label="PVP">
                   <button class="btn" type="button" data-pvp="true" aria-pressed="false">Enabled</button>
                   <button class="btn" type="button" data-pvp="false" aria-pressed="false">Disabled</button>
+                </div>
+              </div>
+              <div class="field grow">
+                <label>Hardcore</label>
+                <div class="segmented two" role="group" aria-label="Hardcore">
+                  <button class="btn" type="button" data-hardcore="true" aria-pressed="false">Enabled</button>
+                  <button class="btn" type="button" data-hardcore="false" aria-pressed="false">Disabled</button>
                 </div>
               </div>
             </div>
@@ -1131,6 +1139,7 @@
         targetMessage: document.getElementById("targetMessage"),
         targetPill: document.getElementById("targetPill"),
         uptimeMetric: document.getElementById("uptimeMetric"),
+        unlockPlayerBtn: document.getElementById("unlockPlayerBtn"),
         useTargetBtn: document.getElementById("useTargetBtn"),
         motdSummary: document.getElementById("motdSummary"),
         containerSummary: document.getElementById("containerSummary"),
@@ -1156,8 +1165,10 @@
         el.saveServerBtn,
         el.startBtn,
         el.stopBtn,
+        el.unlockPlayerBtn,
         el.useTargetBtn,
         ...document.querySelectorAll("[data-difficulty]"),
+        ...document.querySelectorAll("[data-hardcore]"),
         ...document.querySelectorAll("[data-pvp]"),
       ];
 
@@ -1313,6 +1324,13 @@
         return "n/a";
       }
 
+      function formatHardcore(info) {
+        const value = String(info.fileHardcore ?? "").toLowerCase();
+        if (value === "true") return "Enabled";
+        if (value === "false") return "Disabled";
+        return "n/a";
+      }
+
       function propertyValue(info, key) {
         return info.serverProperties?.[key] || "-";
       }
@@ -1389,6 +1407,7 @@
       function renderStatus(info) {
         const running = Boolean(info.running);
         const difficulty = info.fileDifficulty || info.envDifficulty || "n/a";
+        const hardcore = String(info.fileHardcore ?? "").toLowerCase();
         const pvp = String(info.filePvp ?? info.envPvp ?? "").toLowerCase();
 
         el.stateDot.classList.toggle("running", running);
@@ -1414,6 +1433,10 @@
           button.setAttribute("aria-pressed", button.dataset.difficulty === difficulty ? "true" : "false");
         });
 
+        document.querySelectorAll("[data-hardcore]").forEach((button) => {
+          button.setAttribute("aria-pressed", button.dataset.hardcore === hardcore ? "true" : "false");
+        });
+
         document.querySelectorAll("[data-pvp]").forEach((button) => {
           button.setAttribute("aria-pressed", button.dataset.pvp === pvp ? "true" : "false");
         });
@@ -1434,6 +1457,7 @@
           ["Image", info.image],
           ["State", info.state],
           ["PVP", formatPvp(info)],
+          ["Hardcore", formatHardcore(info)],
           ["Ports", formatPorts(info.ports)],
           ["Restart", formatRestartPolicy(info.restartPolicy)],
           ["Mounts", (info.mounts || []).map((mount) => `${mount.source || mount.type} -> ${mount.dest}${mount.rw ? "" : " (read only)"}`).join("\n")],
@@ -1869,6 +1893,28 @@
         });
       }
 
+      async function setHardcore(enabled) {
+        const verb = enabled ? "enable" : "disable";
+        const confirmed = await confirmAction({
+          title: `${enabled ? "Enable" : "Disable"} Hardcore`,
+          message: `This will ${verb} Hardcore in server.properties and restart the Minecraft container. Hardcore is safest before players start a new world.`,
+          confirmText: enabled ? "Enable" : "Disable",
+        });
+        if (!confirmed) return;
+
+        return withBusy("hardcore", async () => {
+          setMessage(el.operationMessage, `${enabled ? "Enabling" : "Disabling"} Hardcore...`);
+          try {
+            await post("/api/hardcore", { ...currentRequestTarget(), enabled }, 70000);
+            await new Promise((resolve) => setTimeout(resolve, 1400));
+            await refresh();
+            setMessage(el.operationMessage, `Hardcore ${enabled ? "enabled" : "disabled"}`, "success");
+          } catch (error) {
+            setMessage(el.operationMessage, error.message, "error");
+          }
+        });
+      }
+
       async function renameContainer() {
         const newName = el.renameInput.value.trim();
         if (!newName) {
@@ -1900,6 +1946,35 @@
             if (data.whitelist) renderWhitelist(data.whitelist);
             await refresh();
             setMessage(el.whitelistMessage, data.note || (enabled ? "Enabled" : "Disabled"), "success");
+          } catch (error) {
+            setMessage(el.whitelistMessage, error.message, "error");
+          }
+        });
+      }
+
+      async function unlockPlayer() {
+        const player = el.playerInput.value.trim();
+        if (!player) {
+          setMessage(el.whitelistMessage, "Enter a player name", "error");
+          return;
+        }
+
+        const confirmed = await confirmAction({
+          title: "Unlock player",
+          message: `Set ${player} back to survival mode? For Java servers this also tries to pardon them first.`,
+          confirmText: "Unlock",
+        });
+        if (!confirmed) return;
+
+        return withBusy("player-unlock", async () => {
+          setMessage(el.whitelistMessage, "Unlocking player...");
+          try {
+            const data = await post("/api/player/unlock", {
+              ...currentRequestTarget(),
+              player,
+            });
+            await refresh();
+            setMessage(el.whitelistMessage, data.note || `${player} set to survival`, "success");
           } catch (error) {
             setMessage(el.whitelistMessage, error.message, "error");
           }
@@ -1996,6 +2071,9 @@
       document.querySelectorAll("[data-difficulty]").forEach((button) => {
         button.addEventListener("click", () => setDifficulty(button.dataset.difficulty));
       });
+      document.querySelectorAll("[data-hardcore]").forEach((button) => {
+        button.addEventListener("click", () => setHardcore(button.dataset.hardcore === "true"));
+      });
       document.querySelectorAll("[data-pvp]").forEach((button) => {
         button.addEventListener("click", () => setPvp(button.dataset.pvp === "true"));
       });
@@ -2003,6 +2081,7 @@
       el.enableWhitelistBtn.addEventListener("click", () => toggleWhitelist(true));
       el.disableWhitelistBtn.addEventListener("click", () => toggleWhitelist(false));
       el.addPlayerBtn.addEventListener("click", () => changePlayer("add"));
+      el.unlockPlayerBtn.addEventListener("click", unlockPlayer);
       el.removePlayerBtn.addEventListener("click", () => changePlayer("remove"));
       el.logsBtn.addEventListener("click", showLogs);
       el.logLines.addEventListener("keydown", (event) => {
