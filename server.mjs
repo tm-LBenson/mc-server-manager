@@ -361,8 +361,9 @@ const assertServerProperty = (key) => {
 };
 
 const normalizeServerPropertyValue = (value) => {
-  const normalized = String(value ?? "").trim();
-  if (/[\r\n]/.test(normalized)) throw new Error("server property values cannot contain line breaks");
+  const normalized = String(value ?? "")
+    .replace(/\r?\n/g, "\\n")
+    .trim();
   if (normalized.length > 240) throw new Error("server property values must be 240 characters or less");
   return normalized;
 };
@@ -413,18 +414,26 @@ const readServerProperties = async (server) => {
 
 const EDITABLE_SERVER_PROPERTIES = new Set([
   "allow-flight",
-  "difficulty",
   "gamemode",
   "level-name",
   "max-players",
   "motd",
   "online-mode",
-  "pvp",
   "server-name",
   "simulation-distance",
   "spawn-protection",
   "view-distance",
 ]);
+
+const containerInfoFromRow = async (server, container) => {
+  const properties = await readServerProperties({ ...server, container: container.name });
+  return {
+    ...container,
+    serverName: properties["server-name"] || null,
+    motd: properties.motd || null,
+    levelName: properties["level-name"] || null,
+  };
+};
 
 const readWhitelistFile = async (server) => {
   const { i, edition } = await getContainerMeta(server);
@@ -474,7 +483,7 @@ const listManagedContainers = async (server) => {
       return { id, name, image, status: rest.join(" "), edition: detectEdition(image) };
     })
     .filter((container) => isManagedMinecraftImage(container.image));
-  return rows;
+  return Promise.all(rows.map((container) => containerInfoFromRow(server, container)));
 };
 
 // -------- API --------
@@ -685,6 +694,33 @@ app.post("/api/properties", async (req, res) => {
     const properties = await readServerProperties(server);
     await run(server, "restart", server.container);
     res.json({ ok: true, restarted: true, properties });
+  } catch (error) {
+    res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
+app.post("/api/spawn", async (req, res) => {
+  try {
+    const server = resolveServer(req.body);
+    const coords = ["x", "y", "z"].map((key) => {
+      const value = Number.parseInt(req.body?.[key], 10);
+      if (!Number.isInteger(value)) throw new Error(`spawn ${key.toUpperCase()} must be an integer`);
+      return String(value);
+    });
+
+    const { i, edition } = await getContainerMeta(server);
+    ensureRunning(i);
+
+    const result = await sendServerCommand(server, i, ["setworldspawn", ...coords]);
+    res.json({
+      ok: true,
+      edition,
+      x: coords[0],
+      y: coords[1],
+      z: coords[2],
+      stdout: result.stdout || null,
+      note: result.note || null,
+    });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
   }

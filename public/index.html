@@ -178,6 +178,15 @@
         box-shadow: var(--shadow);
       }
 
+      details.panel > summary.panel-header {
+        cursor: pointer;
+        list-style: none;
+      }
+
+      details.panel > summary.panel-header::-webkit-details-marker {
+        display: none;
+      }
+
       .tabs {
         display: flex;
         gap: 8px;
@@ -228,6 +237,53 @@
         gap: 10px;
         align-items: center;
         margin-bottom: 16px;
+      }
+
+      .server-summary {
+        display: grid;
+        grid-template-columns: minmax(160px, 0.45fr) minmax(220px, 1fr) minmax(180px, 0.65fr);
+        gap: 10px;
+      }
+
+      .summary-item {
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface-2);
+        padding: 11px 13px;
+      }
+
+      .summary-value {
+        margin-top: 5px;
+        overflow-wrap: anywhere;
+        color: var(--text);
+        font-weight: 750;
+      }
+
+      .menu-panel {
+        margin-top: 12px;
+      }
+
+      .menu-panel > summary {
+        display: inline-flex;
+        min-height: 38px;
+        align-items: center;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--muted);
+        cursor: pointer;
+        font-weight: 750;
+        padding: 8px 12px;
+      }
+
+      .menu-panel > summary:hover {
+        border-color: var(--green);
+        color: var(--text);
+      }
+
+      .menu-panel .control-strip,
+      .menu-panel .connection-grid {
+        margin-top: 12px;
       }
 
       .grid {
@@ -304,6 +360,10 @@
 
       .connection-grid .wide {
         grid-column: span 2;
+      }
+
+      .connection-grid .full {
+        grid-column: 1 / -1;
       }
 
       .field {
@@ -594,7 +654,8 @@
         .control-strip,
         .connection-grid,
         .grid.two,
-        .metrics {
+        .metrics,
+        .server-summary {
           grid-template-columns: 1fr;
         }
       }
@@ -631,6 +692,10 @@
         .connection-grid .wide {
           grid-column: auto;
         }
+
+        .connection-grid .full {
+          grid-column: auto;
+        }
       }
     </style>
   </head>
@@ -661,20 +726,37 @@
           <button id="refreshBtn" class="btn subtle" type="button">Refresh</button>
         </div>
         <div class="panel-body">
-          <div class="control-strip">
-            <label class="visually-hidden" for="serverSelect">Managed server</label>
-            <select id="serverSelect">
-              <option value="">Managed servers</option>
-            </select>
-            <label class="visually-hidden" for="targetInput">Container name or ID</label>
-            <input id="targetInput" autocomplete="off" placeholder="Container name or ID" />
-            <label class="visually-hidden" for="containerSelect">Known containers</label>
-            <select id="containerSelect">
-              <option value="">Known containers</option>
-            </select>
-            <button id="useTargetBtn" class="btn primary" type="button">Use Server</button>
-            <button id="loadContainersBtn" class="btn" type="button">Containers</button>
+          <div class="server-summary" aria-label="Current server">
+            <div class="summary-item">
+              <div class="metric-label">Server Name</div>
+              <div id="serverNameSummary" class="summary-value">-</div>
+            </div>
+            <div class="summary-item">
+              <div class="metric-label">MOTD</div>
+              <div id="motdSummary" class="summary-value">-</div>
+            </div>
+            <div class="summary-item">
+              <div class="metric-label">Container</div>
+              <div id="containerSummary" class="summary-value">-</div>
+            </div>
           </div>
+          <details class="menu-panel">
+            <summary>Change target</summary>
+            <div class="control-strip">
+              <label class="visually-hidden" for="serverSelect">Managed server</label>
+              <select id="serverSelect">
+                <option value="">Managed servers</option>
+              </select>
+              <label class="visually-hidden" for="targetInput">Container name or ID</label>
+              <input id="targetInput" autocomplete="off" placeholder="Container name or ID" />
+              <label class="visually-hidden" for="containerSelect">Known containers</label>
+              <select id="containerSelect">
+                <option value="">Known containers</option>
+              </select>
+              <button id="useTargetBtn" class="btn primary" type="button">Use Server</button>
+              <button id="loadContainersBtn" class="btn" type="button">Containers</button>
+            </div>
+          </details>
           <div id="targetMessage" class="status-line" role="status" aria-live="polite"></div>
           <div id="containersWrap" class="table-wrap hidden" aria-live="polite"></div>
         </div>
@@ -812,14 +894,107 @@
       </section>
 
       <section class="tab-panel hidden" data-tab-panel="settings">
-        <section class="panel" aria-labelledby="settingsHeading">
+        <section class="panel" aria-labelledby="propertiesHeading">
           <div class="panel-header">
-            <h2 id="settingsHeading">Server Settings</h2>
+            <h2 id="propertiesHeading">Minecraft Settings</h2>
+            <button id="savePropertiesBtn" class="btn primary" type="button">Save & Restart</button>
           </div>
           <div class="panel-body">
             <div class="connection-grid">
               <div class="field">
-                <label for="serverLabelInput">Name</label>
+                <label for="propertyServerNameInput">Server Name</label>
+                <input id="propertyServerNameInput" autocomplete="off" placeholder="Tech Tavern" />
+              </div>
+              <div class="field wide">
+                <label for="propertyMotdInput">MOTD</label>
+                <textarea id="propertyMotdInput" autocomplete="off" placeholder="Welcome to the server"></textarea>
+              </div>
+              <div class="field">
+                <label for="propertyLevelNameInput">Level Name</label>
+                <input id="propertyLevelNameInput" autocomplete="off" placeholder="world" />
+              </div>
+              <div class="field">
+                <label for="propertyMaxPlayersInput">Max Players</label>
+                <input id="propertyMaxPlayersInput" inputmode="numeric" placeholder="20" />
+              </div>
+            </div>
+            <details class="menu-panel">
+              <summary>Rules & performance</summary>
+              <div class="connection-grid">
+                <div class="field">
+                  <label for="propertyGamemodeSelect">Game Mode</label>
+                  <select id="propertyGamemodeSelect">
+                    <option value="">-</option>
+                    <option value="survival">Survival</option>
+                    <option value="creative">Creative</option>
+                    <option value="adventure">Adventure</option>
+                    <option value="spectator">Spectator</option>
+                  </select>
+                </div>
+              <div class="field">
+                <label for="propertyOnlineModeSelect">Online Mode</label>
+                <select id="propertyOnlineModeSelect">
+                  <option value="">-</option>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="propertyAllowFlightSelect">Allow Flight</label>
+                <select id="propertyAllowFlightSelect">
+                  <option value="">-</option>
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="propertySpawnProtectionInput">Spawn Protection</label>
+                <input id="propertySpawnProtectionInput" inputmode="numeric" placeholder="16" />
+              </div>
+              <div class="field">
+                <label for="propertyViewDistanceInput">View Distance</label>
+                <input id="propertyViewDistanceInput" inputmode="numeric" placeholder="10" />
+              </div>
+              <div class="field">
+                <label for="propertySimulationDistanceInput">Simulation Distance</label>
+                <input id="propertySimulationDistanceInput" inputmode="numeric" placeholder="10" />
+              </div>
+              </div>
+            </details>
+            <div id="propertiesMessage" class="status-line" role="status" aria-live="polite"></div>
+          </div>
+        </section>
+        <section class="panel" aria-labelledby="spawnHeading">
+          <div class="panel-header">
+            <h2 id="spawnHeading">World Spawn</h2>
+            <button id="setSpawnBtn" class="btn primary" type="button">Set Spawn</button>
+          </div>
+          <div class="panel-body">
+            <div class="connection-grid">
+              <div class="field">
+                <label for="spawnXInput">X</label>
+                <input id="spawnXInput" inputmode="numeric" placeholder="0" />
+              </div>
+              <div class="field">
+                <label for="spawnYInput">Y</label>
+                <input id="spawnYInput" inputmode="numeric" placeholder="64" />
+              </div>
+              <div class="field">
+                <label for="spawnZInput">Z</label>
+                <input id="spawnZInput" inputmode="numeric" placeholder="0" />
+              </div>
+            </div>
+            <div id="spawnMessage" class="status-line" role="status" aria-live="polite"></div>
+          </div>
+        </section>
+        <details class="panel settings-fold">
+          <summary class="panel-header">
+            <h2 id="settingsHeading">Connection Target</h2>
+          </summary>
+          <div class="panel-body">
+            <div class="connection-grid">
+              <div class="field">
+                <label for="serverLabelInput">Manager Label</label>
                 <input id="serverLabelInput" autocomplete="off" placeholder="Survival" />
               </div>
               <div class="field">
@@ -858,90 +1033,7 @@
               <button id="deleteServerBtn" class="btn danger" type="button">Delete</button>
             </div>
           </div>
-        </section>
-        <section class="panel" aria-labelledby="propertiesHeading">
-          <div class="panel-header">
-            <h2 id="propertiesHeading">Minecraft Settings</h2>
-            <button id="savePropertiesBtn" class="btn primary" type="button">Save & Restart</button>
-          </div>
-          <div class="panel-body">
-            <div class="connection-grid">
-              <div class="field">
-                <label for="propertyServerNameInput">Server Name</label>
-                <input id="propertyServerNameInput" autocomplete="off" placeholder="Tech Tavern" />
-              </div>
-              <div class="field wide">
-                <label for="propertyMotdInput">MOTD</label>
-                <textarea id="propertyMotdInput" autocomplete="off" placeholder="Welcome to the server"></textarea>
-              </div>
-              <div class="field">
-                <label for="propertyLevelNameInput">Level Name</label>
-                <input id="propertyLevelNameInput" autocomplete="off" placeholder="world" />
-              </div>
-              <div class="field">
-                <label for="propertyGamemodeSelect">Game Mode</label>
-                <select id="propertyGamemodeSelect">
-                  <option value="">-</option>
-                  <option value="survival">Survival</option>
-                  <option value="creative">Creative</option>
-                  <option value="adventure">Adventure</option>
-                  <option value="spectator">Spectator</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="propertyDifficultySelect">Difficulty</label>
-                <select id="propertyDifficultySelect">
-                  <option value="">-</option>
-                  <option value="peaceful">Peaceful</option>
-                  <option value="easy">Easy</option>
-                  <option value="normal">Normal</option>
-                  <option value="hard">Hard</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="propertyMaxPlayersInput">Max Players</label>
-                <input id="propertyMaxPlayersInput" inputmode="numeric" placeholder="20" />
-              </div>
-              <div class="field">
-                <label for="propertyPvpSelect">PVP</label>
-                <select id="propertyPvpSelect">
-                  <option value="">-</option>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="propertyOnlineModeSelect">Online Mode</label>
-                <select id="propertyOnlineModeSelect">
-                  <option value="">-</option>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="propertyAllowFlightSelect">Allow Flight</label>
-                <select id="propertyAllowFlightSelect">
-                  <option value="">-</option>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="propertySpawnProtectionInput">Spawn Protection</label>
-                <input id="propertySpawnProtectionInput" inputmode="numeric" placeholder="16" />
-              </div>
-              <div class="field">
-                <label for="propertyViewDistanceInput">View Distance</label>
-                <input id="propertyViewDistanceInput" inputmode="numeric" placeholder="10" />
-              </div>
-              <div class="field">
-                <label for="propertySimulationDistanceInput">Simulation Distance</label>
-                <input id="propertySimulationDistanceInput" inputmode="numeric" placeholder="10" />
-              </div>
-            </div>
-            <div id="propertiesMessage" class="status-line" role="status" aria-live="polite"></div>
-          </div>
-        </section>
+        </details>
       </section>
     </main>
 
@@ -997,13 +1089,11 @@
         portsMetric: document.getElementById("portsMetric"),
         propertiesMessage: document.getElementById("propertiesMessage"),
         propertyAllowFlightSelect: document.getElementById("propertyAllowFlightSelect"),
-        propertyDifficultySelect: document.getElementById("propertyDifficultySelect"),
         propertyGamemodeSelect: document.getElementById("propertyGamemodeSelect"),
         propertyLevelNameInput: document.getElementById("propertyLevelNameInput"),
         propertyMaxPlayersInput: document.getElementById("propertyMaxPlayersInput"),
         propertyMotdInput: document.getElementById("propertyMotdInput"),
         propertyOnlineModeSelect: document.getElementById("propertyOnlineModeSelect"),
-        propertyPvpSelect: document.getElementById("propertyPvpSelect"),
         propertyServerNameInput: document.getElementById("propertyServerNameInput"),
         propertySimulationDistanceInput: document.getElementById("propertySimulationDistanceInput"),
         propertySpawnProtectionInput: document.getElementById("propertySpawnProtectionInput"),
@@ -1025,7 +1115,13 @@
         serverSelect: document.getElementById("serverSelect"),
         serverTypeSelect: document.getElementById("serverTypeSelect"),
         serverUserInput: document.getElementById("serverUserInput"),
+        serverNameSummary: document.getElementById("serverNameSummary"),
         savePropertiesBtn: document.getElementById("savePropertiesBtn"),
+        setSpawnBtn: document.getElementById("setSpawnBtn"),
+        spawnMessage: document.getElementById("spawnMessage"),
+        spawnXInput: document.getElementById("spawnXInput"),
+        spawnYInput: document.getElementById("spawnYInput"),
+        spawnZInput: document.getElementById("spawnZInput"),
         startBtn: document.getElementById("startBtn"),
         stateDot: document.getElementById("stateDot"),
         stateMetric: document.getElementById("stateMetric"),
@@ -1036,6 +1132,8 @@
         targetPill: document.getElementById("targetPill"),
         uptimeMetric: document.getElementById("uptimeMetric"),
         useTargetBtn: document.getElementById("useTargetBtn"),
+        motdSummary: document.getElementById("motdSummary"),
+        containerSummary: document.getElementById("containerSummary"),
         whitelistFileMetric: document.getElementById("whitelistFileMetric"),
         whitelistMessage: document.getElementById("whitelistMessage"),
         whitelistTable: document.getElementById("whitelistTable"),
@@ -1054,6 +1152,7 @@
         el.restartBtn,
         el.deleteServerBtn,
         el.savePropertiesBtn,
+        el.setSpawnBtn,
         el.saveServerBtn,
         el.startBtn,
         el.stopBtn,
@@ -1298,6 +1397,9 @@
         setText(el.targetPill, info.target || info.name);
         setText(el.editionPill, info.edition || "unknown");
         setText(el.hostPill, info.hostLabel || "local Docker");
+        setText(el.serverNameSummary, info.serverName || "n/a");
+        setText(el.motdSummary, info.motd || "n/a");
+        setText(el.containerSummary, info.target || info.name);
 
         setText(el.stateMetric, running ? "Running" : info.state || "Stopped");
         setText(el.uptimeMetric, info.hostLabel || "No host");
@@ -1354,9 +1456,7 @@
         el.propertyMotdInput.value = properties.motd || "";
         el.propertyLevelNameInput.value = properties["level-name"] || "";
         el.propertyGamemodeSelect.value = properties.gamemode || "";
-        el.propertyDifficultySelect.value = properties.difficulty || info.fileDifficulty || "";
         el.propertyMaxPlayersInput.value = properties["max-players"] || "";
-        el.propertyPvpSelect.value = properties.pvp || "";
         el.propertyOnlineModeSelect.value = properties["online-mode"] || "";
         el.propertyAllowFlightSelect.value = properties["allow-flight"] || "";
         el.propertySpawnProtectionInput.value = properties["spawn-protection"] || "";
@@ -1375,9 +1475,7 @@
         set("motd", el.propertyMotdInput.value);
         set("level-name", el.propertyLevelNameInput.value);
         set("gamemode", el.propertyGamemodeSelect.value);
-        set("difficulty", el.propertyDifficultySelect.value);
         set("max-players", el.propertyMaxPlayersInput.value);
-        set("pvp", el.propertyPvpSelect.value);
         set("online-mode", el.propertyOnlineModeSelect.value);
         set("allow-flight", el.propertyAllowFlightSelect.value);
         set("spawn-protection", el.propertySpawnProtectionInput.value);
@@ -1439,7 +1537,8 @@
         el.containerSelect.replaceChildren(new Option("Known containers", ""));
         containers.forEach((container) => {
           const edition = container.edition && container.edition !== "unknown" ? `${container.edition} - ` : "";
-          const option = new Option(`${container.name} - ${edition}${container.status}`, container.name);
+          const serverName = container.serverName ? ` - ${container.serverName}` : "";
+          const option = new Option(`${container.name}${serverName} - ${edition}${container.status}`, container.name);
           el.containerSelect.add(option);
         });
 
@@ -1459,7 +1558,7 @@
         const thead = document.createElement("thead");
         const tbody = document.createElement("tbody");
         const header = document.createElement("tr");
-        ["Name", "Edition", "Image", "Status"].forEach((text) => {
+        ["Container", "Server Name", "MOTD", "Edition", "Status"].forEach((text) => {
           const th = document.createElement("th");
           th.textContent = text;
           header.append(th);
@@ -1472,7 +1571,7 @@
           row.addEventListener("click", () => {
             selectContainer(container);
           });
-          [container.name, container.edition, container.image, container.status].forEach((text) => {
+          [container.name, container.serverName, container.motd, container.edition, container.status].forEach((text) => {
             const td = document.createElement("td");
             td.textContent = text || "-";
             row.append(td);
@@ -1675,6 +1774,36 @@
         });
       }
 
+      async function setWorldSpawn() {
+        const coords = {
+          x: el.spawnXInput.value.trim(),
+          y: el.spawnYInput.value.trim(),
+          z: el.spawnZInput.value.trim(),
+        };
+
+        if (!coords.x || !coords.y || !coords.z) {
+          setMessage(el.spawnMessage, "Enter X, Y, and Z coordinates", "error");
+          return;
+        }
+
+        const confirmed = await confirmAction({
+          title: "Set world spawn",
+          message: `Set default spawn to ${coords.x}, ${coords.y}, ${coords.z}?`,
+          confirmText: "Set Spawn",
+        });
+        if (!confirmed) return;
+
+        return withBusy("spawn", async () => {
+          setMessage(el.spawnMessage, "Setting world spawn...");
+          try {
+            const data = await post("/api/spawn", { ...currentRequestTarget(), ...coords }, 35000);
+            setMessage(el.spawnMessage, data.note || `World spawn set to ${data.x}, ${data.y}, ${data.z}`, "success");
+          } catch (error) {
+            setMessage(el.spawnMessage, error.message, "error");
+          }
+        });
+      }
+
       async function containerAction(action) {
         const labels = {
           restart: "Restarting...",
@@ -1852,6 +1981,7 @@
       el.newServerBtn.addEventListener("click", newServerForm);
       el.saveServerBtn.addEventListener("click", saveServer);
       el.savePropertiesBtn.addEventListener("click", saveProperties);
+      el.setSpawnBtn.addEventListener("click", setWorldSpawn);
       el.deleteServerBtn.addEventListener("click", deleteServer);
       el.containerSelect.addEventListener("change", () => {
         if (!el.containerSelect.value) return;
