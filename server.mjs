@@ -672,6 +672,9 @@ app.post("/api/difficulty", async (req, res) => {
     }
 
     const i = await inspect(server);
+    if (i.State?.Running) {
+      await writeServerProperty(server, "difficulty", level);
+    }
     const name = await recreateContainerWithEnv(server, i, { DIFFICULTY: level });
     res.json({ ok: true, newDifficulty: level, target: name, serverId: server.id });
   } catch (error) {
