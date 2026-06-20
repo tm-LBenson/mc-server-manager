@@ -26,6 +26,8 @@ const AUTH_TOKEN = randomBytes(32).toString("hex");
 
 const normalizeTimeout = (value, fallback) => (Number.isFinite(value) && value > 0 ? value : fallback);
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const slug = (value, fallback = "server") => {
   const cleaned = String(value || "")
     .toLowerCase()
@@ -356,6 +358,24 @@ const sendServerCommand = async (server, containerInspect, args) => {
   throw new Error(`unsupported container image for server commands: ${containerInspect.Config?.Image || "unknown"}`);
 };
 
+const sendServerCommandWhenReady = async (server, args, timeoutMs = 30000) => {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const i = await inspect(server);
+      ensureRunning(i);
+      return await sendServerCommand(server, i, args);
+    } catch (error) {
+      lastError = error;
+      await sleep(1500);
+    }
+  }
+
+  throw lastError || new Error("server command timed out");
+};
+
 const assertServerProperty = (key) => {
   if (!/^[a-z0-9_.-]+$/i.test(key)) throw new Error(`invalid server property: ${key}`);
 };
@@ -374,6 +394,8 @@ const parseBooleanFlag = (value, field = "enabled") => {
   }
   return value === true || value === "true";
 };
+
+const booleanPropertyValue = (enabled) => (enabled ? "true" : "false");
 
 const writeServerProperty = async (server, key, value) => {
   assertServerProperty(key);
@@ -611,6 +633,7 @@ app.get("/api/info", async (req, res) => {
       envDifficulty: env.DIFFICULTY ?? null,
       envPvp: env.PVP ?? null,
       envHardcore: env.HARDCORE ?? null,
+      envOverrideServerProperties: env.OVERRIDE_SERVER_PROPERTIES ?? null,
       fileDifficulty: properties.difficulty || null,
       filePvp: properties.pvp || null,
       fileHardcore: properties.hardcore || null,
@@ -675,7 +698,7 @@ app.post("/api/difficulty", async (req, res) => {
     if (i.State?.Running) {
       await writeServerProperty(server, "difficulty", level);
     }
-    const name = await recreateContainerWithEnv(server, i, { DIFFICULTY: level });
+    const name = await recreateContainerWithEnv(server, i, { DIFFICULTY: level, OVERRIDE_SERVER_PROPERTIES: "true" });
     res.json({ ok: true, newDifficulty: level, target: name, serverId: server.id });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
@@ -691,13 +714,24 @@ app.post("/api/pvp", async (req, res) => {
     } catch (error) {
       return res.status(400).json({ error: String(error.message || error) });
     }
-    const { i } = await getContainerMeta(server);
+    const { i, edition } = await getContainerMeta(server);
     ensureRunning(i);
 
-    await writeServerProperty(server, "pvp", enabled ? "true" : "false");
-    const target = await recreateContainerWithEnv(server, i, { PVP: enabled ? "TRUE" : "FALSE" });
+    const value = booleanPropertyValue(enabled);
+    await writeServerProperty(server, "pvp", value);
+    const target = await recreateContainerWithEnv(server, i, { PVP: value, OVERRIDE_SERVER_PROPERTIES: "true" });
+    let note = null;
 
-    res.json({ ok: true, enabled, filePvp: enabled ? "true" : "false", recreated: true, target });
+    if (edition === "bedrock") {
+      try {
+        await sendServerCommandWhenReady({ ...server, container: target }, ["gamerule", "pvp", value]);
+        note = `Bedrock gamerule pvp ${value} applied.`;
+      } catch (error) {
+        note = `PVP file/startup config updated, but Bedrock gamerule could not be confirmed: ${String(error.message || error)}`;
+      }
+    }
+
+    res.json({ ok: true, enabled, filePvp: value, recreated: true, target, note });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
   }
@@ -719,10 +753,11 @@ app.post("/api/hardcore", async (req, res) => {
       return res.status(400).json({ error: "Hardcore mode is currently managed for Java servers only." });
     }
 
-    await writeServerProperty(server, "hardcore", enabled ? "true" : "false");
-    const target = await recreateContainerWithEnv(server, i, { HARDCORE: enabled ? "TRUE" : "FALSE" });
+    const value = booleanPropertyValue(enabled);
+    await writeServerProperty(server, "hardcore", value);
+    const target = await recreateContainerWithEnv(server, i, { HARDCORE: value, OVERRIDE_SERVER_PROPERTIES: "true" });
 
-    res.json({ ok: true, enabled, fileHardcore: enabled ? "true" : "false", recreated: true, target });
+    res.json({ ok: true, enabled, fileHardcore: value, recreated: true, target });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
   }

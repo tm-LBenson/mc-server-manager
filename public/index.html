@@ -1317,18 +1317,37 @@
         return policy.MaximumRetryCount ? `${policy.Name} (${policy.MaximumRetryCount})` : policy.Name;
       }
 
-      function formatPvp(info) {
-        const value = String(info.filePvp ?? info.envPvp ?? "").toLowerCase();
+      function normalizeToggleValue(value) {
+        const normalized = String(value ?? "").trim().toLowerCase();
+        if (["true", "1", "yes", "on"].includes(normalized)) return "true";
+        if (["false", "0", "no", "off"].includes(normalized)) return "false";
+        return "";
+      }
+
+      function toggleLabel(value) {
         if (value === "true") return "Enabled";
         if (value === "false") return "Disabled";
         return "n/a";
       }
 
+      function pvpValue(info) {
+        const file = normalizeToggleValue(info.filePvp);
+        const env = normalizeToggleValue(info.envPvp);
+        if (file && env && file !== env) return "";
+        return file || env;
+      }
+
+      function formatPvp(info) {
+        const file = normalizeToggleValue(info.filePvp);
+        const env = normalizeToggleValue(info.envPvp);
+        if (file && env && file !== env) {
+          return `Conflict: file ${toggleLabel(file)}, startup ${toggleLabel(env)}`;
+        }
+        return toggleLabel(file || env);
+      }
+
       function formatHardcore(info) {
-        const value = String(info.fileHardcore ?? info.envHardcore ?? "").toLowerCase();
-        if (value === "true") return "Enabled";
-        if (value === "false") return "Disabled";
-        return "n/a";
+        return toggleLabel(normalizeToggleValue(info.fileHardcore ?? info.envHardcore));
       }
 
       function propertyValue(info, key) {
@@ -1407,8 +1426,8 @@
       function renderStatus(info) {
         const running = Boolean(info.running);
         const difficulty = info.fileDifficulty || info.envDifficulty || "n/a";
-        const hardcore = String(info.fileHardcore ?? info.envHardcore ?? "").toLowerCase();
-        const pvp = String(info.filePvp ?? info.envPvp ?? "").toLowerCase();
+        const hardcore = normalizeToggleValue(info.fileHardcore ?? info.envHardcore);
+        const pvp = pvpValue(info);
 
         el.stateDot.classList.toggle("running", running);
         el.stateDot.classList.toggle("stopped", !running);
@@ -1457,6 +1476,8 @@
           ["Image", info.image],
           ["State", info.state],
           ["PVP", formatPvp(info)],
+          ["PVP Startup Env", info.envPvp || "-"],
+          ["Property Sync", info.envOverrideServerProperties || "-"],
           ["Hardcore", formatHardcore(info)],
           ["Ports", formatPorts(info.ports)],
           ["Restart", formatRestartPolicy(info.restartPolicy)],
@@ -1883,10 +1904,10 @@
         return withBusy("pvp", async () => {
           setMessage(el.operationMessage, `${enabled ? "Enabling" : "Disabling"} PVP...`);
           try {
-            await post("/api/pvp", { ...currentRequestTarget(), enabled }, 70000);
+            const data = await post("/api/pvp", { ...currentRequestTarget(), enabled }, 70000);
             await new Promise((resolve) => setTimeout(resolve, 1400));
             await refresh();
-            setMessage(el.operationMessage, `PVP ${enabled ? "enabled" : "disabled"}`, "success");
+            setMessage(el.operationMessage, data.note || `PVP ${enabled ? "enabled" : "disabled"}`, "success");
           } catch (error) {
             setMessage(el.operationMessage, error.message, "error");
           }
