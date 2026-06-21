@@ -295,6 +295,19 @@
         grid-template-columns: minmax(0, 1fr) minmax(330px, 0.52fr);
       }
 
+      .notes-layout {
+        display: grid;
+        grid-template-columns: minmax(280px, 0.48fr) minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+      }
+
+      .note-row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
       .metrics {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -680,6 +693,7 @@
         .control-strip,
         .connection-grid,
         .grid.two,
+        .notes-layout,
         .metrics,
         .server-summary {
           grid-template-columns: 1fr;
@@ -791,6 +805,7 @@
       <nav class="tabs" role="tablist" aria-label="Server workspace">
         <button class="tab-button" type="button" role="tab" aria-selected="true" data-tab="overview">Overview</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="players">Players</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="notes">Notes</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="control">Control Center</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="operations">Operations</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="logs">Logs</button>
@@ -856,6 +871,71 @@
             </div>
             <div id="whitelistMessage" class="status-line" role="status" aria-live="polite"></div>
             <div id="whitelistTable" class="table-wrap"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel hidden" data-tab-panel="notes">
+        <section class="panel" aria-labelledby="notesHeading">
+          <div class="panel-header">
+            <h2 id="notesHeading">Player Notes</h2>
+            <div class="form-row">
+              <button id="useSelectedPlayerNoteBtn" class="btn" type="button">Use Selected Player</button>
+              <button id="newNoteBtn" class="btn subtle" type="button">New</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="notes-layout">
+              <div>
+                <div class="form-row">
+                  <div class="field grow">
+                    <label for="notePlayerInput">Player</label>
+                    <input id="notePlayerInput" autocomplete="off" placeholder="Player name" />
+                  </div>
+                  <div class="field grow">
+                    <label for="noteTitleInput">Found</label>
+                    <input id="noteTitleInput" autocomplete="off" placeholder="Village, diamonds, portal" />
+                  </div>
+                </div>
+                <div class="connection-grid">
+                  <div class="field">
+                    <label for="noteXInput">X</label>
+                    <input id="noteXInput" inputmode="decimal" placeholder="0" />
+                  </div>
+                  <div class="field">
+                    <label for="noteYInput">Y</label>
+                    <input id="noteYInput" inputmode="decimal" placeholder="64" />
+                  </div>
+                  <div class="field">
+                    <label for="noteZInput">Z</label>
+                    <input id="noteZInput" inputmode="decimal" placeholder="0" />
+                  </div>
+                  <div class="field">
+                    <label for="noteDimensionInput">Dimension</label>
+                    <input id="noteDimensionInput" autocomplete="off" placeholder="minecraft:overworld" />
+                  </div>
+                  <div class="field full">
+                    <label for="noteDetailsInput">Details</label>
+                    <textarea id="noteDetailsInput" autocomplete="off" placeholder="Loot, landmarks, hazards, next steps"></textarea>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <button id="noteSaveBtn" class="btn primary" type="button">Save Note</button>
+                  <button id="noteClearBtn" class="btn subtle" type="button">Clear</button>
+                  <button id="noteDeleteBtn" class="btn danger" type="button" disabled>Delete</button>
+                </div>
+                <div id="noteMessage" class="status-line" role="status" aria-live="polite"></div>
+              </div>
+              <div>
+                <div class="form-row">
+                  <div class="field grow">
+                    <label for="noteSearchInput">Filter</label>
+                    <input id="noteSearchInput" autocomplete="off" placeholder="Player, place, item, coordinate" />
+                  </div>
+                </div>
+                <div id="playerNotesTable" class="table-wrap"></div>
+              </div>
+            </div>
           </div>
         </section>
       </section>
@@ -1276,12 +1356,17 @@
     </dialog>
 
     <script>
+      const PLAYER_NOTES_STORAGE_KEY = "mcsm.playerNotes.v1";
+
       const state = {
         activeTarget: "",
         activeServerId: "",
         activeTab: "overview",
         editingServerId: "",
+        editingNoteId: "",
         gamePlayers: [],
+        latestPlayerSnapshot: null,
+        playerNotes: [],
         servers: [],
         info: null,
         busy: new Set(),
@@ -1355,6 +1440,19 @@
         logsBtn: document.getElementById("logsBtn"),
         logoutBtn: document.getElementById("logoutBtn"),
         newServerBtn: document.getElementById("newServerBtn"),
+        newNoteBtn: document.getElementById("newNoteBtn"),
+        noteClearBtn: document.getElementById("noteClearBtn"),
+        noteDeleteBtn: document.getElementById("noteDeleteBtn"),
+        noteDetailsInput: document.getElementById("noteDetailsInput"),
+        noteDimensionInput: document.getElementById("noteDimensionInput"),
+        noteMessage: document.getElementById("noteMessage"),
+        notePlayerInput: document.getElementById("notePlayerInput"),
+        noteSaveBtn: document.getElementById("noteSaveBtn"),
+        noteSearchInput: document.getElementById("noteSearchInput"),
+        noteTitleInput: document.getElementById("noteTitleInput"),
+        noteXInput: document.getElementById("noteXInput"),
+        noteYInput: document.getElementById("noteYInput"),
+        noteZInput: document.getElementById("noteZInput"),
         openBlockInventoryBtn: document.getElementById("openBlockInventoryBtn"),
         openDeathDropsBtn: document.getElementById("openDeathDropsBtn"),
         openMobToolsBtn: document.getElementById("openMobToolsBtn"),
@@ -1364,6 +1462,7 @@
         mobToolsDialog: document.getElementById("mobToolsDialog"),
         playerActionsDialog: document.getElementById("playerActionsDialog"),
         playerInput: document.getElementById("playerInput"),
+        playerNotesTable: document.getElementById("playerNotesTable"),
         portsMetric: document.getElementById("portsMetric"),
         propertiesMessage: document.getElementById("propertiesMessage"),
         propertyAllowFlightSelect: document.getElementById("propertyAllowFlightSelect"),
@@ -1410,6 +1509,7 @@
         targetPill: document.getElementById("targetPill"),
         uptimeMetric: document.getElementById("uptimeMetric"),
         unlockPlayerBtn: document.getElementById("unlockPlayerBtn"),
+        useSelectedPlayerNoteBtn: document.getElementById("useSelectedPlayerNoteBtn"),
         useTargetBtn: document.getElementById("useTargetBtn"),
         mobToolsMessage: document.getElementById("mobToolsMessage"),
         motdSummary: document.getElementById("motdSummary"),
@@ -1674,6 +1774,9 @@
         if (tabName === "control") {
           loadGameStatus({ inspectSelected: true });
         }
+        if (tabName === "notes") {
+          renderPlayerNotes();
+        }
       }
 
       function getCurrentServer() {
@@ -1884,6 +1987,262 @@
         el.whitelistTable.replaceChildren(table);
       }
 
+      function noteId() {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+        return `note-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
+      function noteScope() {
+        return {
+          serverId: selectedServerId() || "",
+          target: targetName() || "",
+        };
+      }
+
+      function normalizeStoredNote(note = {}) {
+        return {
+          id: String(note.id || noteId()),
+          serverId: String(note.serverId || "").trim(),
+          target: String(note.target || "").trim(),
+          player: String(note.player || "").trim(),
+          title: String(note.title || "").trim(),
+          x: String(note.x ?? "").trim(),
+          y: String(note.y ?? "").trim(),
+          z: String(note.z ?? "").trim(),
+          dimension: String(note.dimension || "").trim(),
+          details: String(note.details || "").trim(),
+          createdAt: String(note.createdAt || new Date().toISOString()),
+          updatedAt: String(note.updatedAt || note.createdAt || new Date().toISOString()),
+        };
+      }
+
+      function readPlayerNotes() {
+        try {
+          const raw = window.localStorage.getItem(PLAYER_NOTES_STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : [];
+          return Array.isArray(parsed) ? parsed.map(normalizeStoredNote) : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function persistPlayerNotes() {
+        try {
+          window.localStorage.setItem(PLAYER_NOTES_STORAGE_KEY, JSON.stringify(state.playerNotes));
+          return true;
+        } catch {
+          setMessage(el.noteMessage, "Could not save notes in this browser", "error");
+          return false;
+        }
+      }
+
+      function loadPlayerNotes() {
+        state.playerNotes = readPlayerNotes();
+        renderPlayerNotes();
+      }
+
+      function noteMatchesCurrentScope(note) {
+        const scope = noteScope();
+        if (!scope.serverId && !scope.target) return true;
+        return (scope.serverId && note.serverId === scope.serverId) || (scope.target && note.target === scope.target);
+      }
+
+      function formatNoteCoordinates(note) {
+        const hasCoordinates = note.x || note.y || note.z;
+        const coordinates = hasCoordinates ? [note.x || "?", note.y || "?", note.z || "?"].join(", ") : "-";
+        return note.dimension ? `${coordinates} (${note.dimension})` : coordinates;
+      }
+
+      function formatNoteDate(value) {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return "-";
+        return date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+      }
+
+      function filteredPlayerNotes() {
+        const query = String(el.noteSearchInput.value || "").trim().toLowerCase();
+        return state.playerNotes
+          .filter(noteMatchesCurrentScope)
+          .filter((note) => {
+            if (!query) return true;
+            const text = [note.player, note.title, note.x, note.y, note.z, note.dimension, note.details].join(" ").toLowerCase();
+            return text.includes(query);
+          })
+          .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      }
+
+      function clearNoteForm() {
+        state.editingNoteId = "";
+        el.notePlayerInput.value = "";
+        el.noteTitleInput.value = "";
+        el.noteXInput.value = "";
+        el.noteYInput.value = "";
+        el.noteZInput.value = "";
+        el.noteDimensionInput.value = "";
+        el.noteDetailsInput.value = "";
+        el.noteSaveBtn.textContent = "Save Note";
+        el.noteDeleteBtn.disabled = true;
+        setMessage(el.noteMessage);
+      }
+
+      function fillNoteForm(note) {
+        state.editingNoteId = note.id || "";
+        el.notePlayerInput.value = note.player || "";
+        el.noteTitleInput.value = note.title || "";
+        el.noteXInput.value = note.x || "";
+        el.noteYInput.value = note.y || "";
+        el.noteZInput.value = note.z || "";
+        el.noteDimensionInput.value = note.dimension || "";
+        el.noteDetailsInput.value = note.details || "";
+        el.noteSaveBtn.textContent = state.editingNoteId ? "Update Note" : "Save Note";
+        el.noteDeleteBtn.disabled = !state.editingNoteId;
+        setMessage(el.noteMessage, state.editingNoteId ? "Editing note" : "");
+      }
+
+      function renderPlayerNotes() {
+        const notes = filteredPlayerNotes();
+        const scopedCount = state.playerNotes.filter(noteMatchesCurrentScope).length;
+
+        if (!notes.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = scopedCount ? "No matching notes" : "No notes saved for this server";
+          el.playerNotesTable.replaceChildren(empty);
+          return;
+        }
+
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const tbody = document.createElement("tbody");
+        const header = document.createElement("tr");
+        ["Found", "Player", "Coordinates", "Details", "Updated", "Actions"].forEach((text) => {
+          const th = document.createElement("th");
+          th.textContent = text;
+          header.append(th);
+        });
+        thead.append(header);
+
+        notes.forEach((note) => {
+          const row = document.createElement("tr");
+          [note.title || "-", note.player || "-", formatNoteCoordinates(note), note.details || "-", formatNoteDate(note.updatedAt)].forEach((text) => {
+            const td = document.createElement("td");
+            td.textContent = text;
+            row.append(td);
+          });
+
+          const actions = document.createElement("td");
+          const actionWrap = document.createElement("div");
+          actionWrap.className = "note-row-actions";
+
+          const editButton = document.createElement("button");
+          editButton.className = "btn subtle";
+          editButton.type = "button";
+          editButton.textContent = "Edit";
+          editButton.addEventListener("click", () => fillNoteForm(note));
+
+          const deleteButton = document.createElement("button");
+          deleteButton.className = "btn danger";
+          deleteButton.type = "button";
+          deleteButton.textContent = "Delete";
+          deleteButton.addEventListener("click", () => deletePlayerNote(note.id));
+
+          actionWrap.append(editButton, deleteButton);
+          actions.append(actionWrap);
+          row.append(actions);
+          tbody.append(row);
+        });
+
+        table.append(thead, tbody);
+        el.playerNotesTable.replaceChildren(table);
+      }
+
+      function playerNotePayloadFromForm() {
+        const player = el.notePlayerInput.value.trim();
+        const title = el.noteTitleInput.value.trim();
+        const x = el.noteXInput.value.trim();
+        const y = el.noteYInput.value.trim();
+        const z = el.noteZInput.value.trim();
+        const dimension = el.noteDimensionInput.value.trim();
+        const details = el.noteDetailsInput.value.trim();
+
+        if (!player) throw new Error("Enter a player name");
+        if ([x, y, z].some(Boolean) && ![x, y, z].every(Boolean)) {
+          throw new Error("Enter X, Y, and Z or leave coordinates blank");
+        }
+        if (![title, x, y, z, dimension, details].some(Boolean)) {
+          throw new Error("Enter coordinates or details");
+        }
+
+        return { player, title, x, y, z, dimension, details };
+      }
+
+      function savePlayerNote() {
+        let payload;
+        try {
+          payload = playerNotePayloadFromForm();
+        } catch (error) {
+          setMessage(el.noteMessage, error.message, "error");
+          return;
+        }
+
+        const now = new Date().toISOString();
+        const existing = state.playerNotes.find((note) => note.id === state.editingNoteId);
+        const scope = noteScope();
+        const next = normalizeStoredNote({
+          ...(existing || {}),
+          ...scope,
+          ...payload,
+          id: existing?.id || noteId(),
+          createdAt: existing?.createdAt || now,
+          updatedAt: now,
+        });
+
+        state.playerNotes = existing ? state.playerNotes.map((note) => (note.id === next.id ? next : note)) : [next, ...state.playerNotes];
+        if (!persistPlayerNotes()) return;
+
+        fillNoteForm(next);
+        renderPlayerNotes();
+        setMessage(el.noteMessage, existing ? "Note updated" : "Note saved", "success");
+      }
+
+      async function deletePlayerNote(id = state.editingNoteId) {
+        const note = state.playerNotes.find((item) => item.id === id);
+        if (!note) return;
+
+        const confirmed = await confirmAction({
+          title: "Delete note",
+          message: `Delete the note for ${note.player || "this player"}?`,
+          confirmText: "Delete",
+          danger: true,
+        });
+        if (!confirmed) return;
+
+        state.playerNotes = state.playerNotes.filter((item) => item.id !== id);
+        if (!persistPlayerNotes()) return;
+        if (state.editingNoteId === id) clearNoteForm();
+        renderPlayerNotes();
+        setMessage(el.noteMessage, "Note deleted", "success");
+      }
+
+      function useSelectedPlayerForNote() {
+        const player = selectedGamePlayer() || el.playerInput.value.trim() || state.latestPlayerSnapshot?.player || "";
+        const snapshot = !player || state.latestPlayerSnapshot?.player === player ? state.latestPlayerSnapshot : null;
+
+        if (!player && !snapshot?.position) {
+          setMessage(el.noteMessage, "No selected player is available", "error");
+          return;
+        }
+
+        if (player) el.notePlayerInput.value = player;
+        if (snapshot?.position) {
+          el.noteXInput.value = Number(snapshot.position.x).toFixed(1);
+          el.noteYInput.value = Number(snapshot.position.y).toFixed(1);
+          el.noteZInput.value = Number(snapshot.position.z).toFixed(1);
+          el.noteDimensionInput.value = snapshot.dimension || "";
+        }
+        setMessage(el.noteMessage, snapshot?.position ? "Selected player location copied" : "Selected player copied", "success");
+      }
+
       function formatPosition(position) {
         if (!position) return "-";
         return [position.x, position.y, position.z].map((value) => Number(value).toFixed(1)).join(", ");
@@ -2001,6 +2360,7 @@
       }
 
       function clearGameSnapshot() {
+        state.latestPlayerSnapshot = null;
         setText(el.gameLocationMetric, "-");
         setText(el.gameDimensionMetric, "-");
         setText(el.gameHealthMetric, "-");
@@ -2018,6 +2378,7 @@
         }
 
         setText(el.gameSelectedPlayerMetric, snapshot.player);
+        state.latestPlayerSnapshot = snapshot;
         setText(el.gameLocationMetric, formatPosition(snapshot.position));
         setText(el.gameDimensionMetric, snapshot.dimension || "-");
         setText(el.gameHealthMetric, snapshot.health == null ? "-" : `${snapshot.health}`);
@@ -2329,6 +2690,7 @@
         renderProperties(info);
         renderDeathDrops({ config: info.deathDrops || {} });
         renderGameAvailability(info);
+        renderPlayerNotes();
         if (state.activeTab === "control") loadGameStatus({ inspectSelected: false });
         loadWhitelist();
         return info;
@@ -2791,6 +3153,12 @@
       el.addPlayerBtn.addEventListener("click", () => changePlayer("add"));
       el.unlockPlayerBtn.addEventListener("click", unlockPlayer);
       el.removePlayerBtn.addEventListener("click", () => changePlayer("remove"));
+      el.newNoteBtn.addEventListener("click", clearNoteForm);
+      el.noteSaveBtn.addEventListener("click", savePlayerNote);
+      el.noteClearBtn.addEventListener("click", clearNoteForm);
+      el.noteDeleteBtn.addEventListener("click", () => deletePlayerNote());
+      el.noteSearchInput.addEventListener("input", renderPlayerNotes);
+      el.useSelectedPlayerNoteBtn.addEventListener("click", useSelectedPlayerForNote);
       el.openPlayerActionsBtn.addEventListener("click", () => openDialog(el.playerActionsDialog));
       el.openBlockInventoryBtn.addEventListener("click", () => openDialog(el.blockInventoryDialog));
       el.openDeathDropsBtn.addEventListener("click", () => {
@@ -2845,6 +3213,7 @@
         if (event.key === "Enter") showLogs();
       });
 
+      loadPlayerNotes();
       refresh();
     </script>
   </body>
