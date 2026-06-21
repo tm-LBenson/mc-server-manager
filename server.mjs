@@ -596,12 +596,13 @@ const normalizeGameMode = (value) => {
 const javaErrorStatus = (error) => error.status || 500;
 
 const collectJavaPlayerSnapshot = async (server, i, player) => {
-  const [positionResult, dimensionResult, healthResult, foodResult, inventoryResult] = await Promise.allSettled([
+  const [positionResult, dimensionResult, healthResult, foodResult, inventoryResult, lastDeathLocationResult] = await Promise.allSettled([
     sendServerCommand(server, i, ["data", "get", "entity", player, "Pos"]),
     sendServerCommand(server, i, ["data", "get", "entity", player, "Dimension"]),
     sendServerCommand(server, i, ["data", "get", "entity", player, "Health"]),
     sendServerCommand(server, i, ["data", "get", "entity", player, "foodLevel"]),
     sendServerCommand(server, i, ["data", "get", "entity", player, "Inventory"]),
+    sendServerCommand(server, i, ["data", "get", "entity", player, "LastDeathLocation"]),
   ]);
 
   const valueFrom = (result) => (result.status === "fulfilled" ? result.value.stdout || "" : "");
@@ -619,6 +620,7 @@ const collectJavaPlayerSnapshot = async (server, i, player) => {
       health: valueFrom(healthResult),
       food: valueFrom(foodResult),
       inventory: valueFrom(inventoryResult),
+      lastDeathLocation: valueFrom(lastDeathLocationResult),
     },
   };
 };
@@ -652,6 +654,8 @@ const getDeathDropMonitor = (server) => {
   if (!deathDropMonitors.has(key)) {
     deathDropMonitors.set(key, {
       deaths: new Map(),
+      lastDeathLocations: new Map(),
+      processedDeaths: new Set(),
       snapshots: new Map(),
       objectiveReady: false,
       lastCheck: null,
@@ -682,6 +686,13 @@ const publicDeathDropMonitor = (server) => {
     lastError: state.lastError,
     trackedPlayers: state.trackedPlayers || [],
   };
+};
+
+const markProcessedDeath = (state, key) => {
+  state.processedDeaths.add(key);
+  if (state.processedDeaths.size > 500) {
+    state.processedDeaths.delete(state.processedDeaths.values().next().value);
+  }
 };
 
 const parseDeathScore = (stdout = "") => {
@@ -1021,6 +1032,13 @@ const deathEventSnapshot = (config, previousSnapshot, currentSnapshot) => {
   };
 };
 
+const confirmKeepInventoryForVirtualDrops = async (server, i, config) => {
+  const current = await readJavaGameRule(server, i, "keepInventory").catch(() => null);
+  if (current === true) return true;
+  await applyDeathDropGameRules(server, i, config).catch(() => null);
+  return false;
+};
+
 const handleDeathDropEvent = async (server, i, player, snapshot, config, state) => {
   const event = {
     player,
@@ -1034,11 +1052,25 @@ const handleDeathDropEvent = async (server, i, player, snapshot, config, state) 
       event.position = await tightenDeathDrops(server, i, snapshot, config);
       event.ok = true;
     } else if (config.mode === "drop") {
-      Object.assign(event, await dropInventoryAtDeathSpot(server, i, player, snapshot));
-      event.ok = true;
+      event.keepInventoryConfirmed = await confirmKeepInventoryForVirtualDrops(server, i, config);
+      if (!event.keepInventoryConfirmed) {
+        event.position = await tightenDeathDrops(server, i, snapshot, config);
+        event.ok = true;
+        event.note = "keepInventory was not active, so the manager skipped virtual item drops to prevent duplication. Normal drops were tightened and keepInventory was re-applied for future deaths.";
+      } else {
+        Object.assign(event, await dropInventoryAtDeathSpot(server, i, player, snapshot));
+        event.ok = true;
+      }
     } else if (config.mode === "chest") {
-      Object.assign(event, await createDeathChests(server, i, player, snapshot));
-      event.ok = true;
+      event.keepInventoryConfirmed = await confirmKeepInventoryForVirtualDrops(server, i, config);
+      if (!event.keepInventoryConfirmed) {
+        event.position = await tightenDeathDrops(server, i, snapshot, config);
+        event.ok = true;
+        event.note = "keepInventory was not active, so the manager skipped death chest creation to prevent duplication. Normal drops were tightened and keepInventory was re-applied for future deaths.";
+      } else {
+        Object.assign(event, await createDeathChests(server, i, player, snapshot));
+        event.ok = true;
+      }
     } else {
       event.ok = true;
       event.note = "keepInventory is enabled; no death-drop action was needed.";
@@ -1081,17 +1113,36 @@ const monitorDeathDropsForServer = async (server) => {
     for (const player of players) {
       const previousScore = state.deaths.get(player);
       const previousSnapshot = state.snapshots.get(player);
+      const previousDeathLocation = state.lastDeathLocations.get(player) || "";
       const [score, snapshot] = await Promise.all([
         readJavaDeathScore(server, i, player),
         collectJavaPlayerSnapshot(server, i, player).catch(() => null),
       ]);
-
-      if (previousScore != null && score > previousScore) {
-        await handleDeathDropEvent(server, i, player, deathEventSnapshot(config, previousSnapshot, snapshot), config, state);
-      }
+      const lastDeathLocation = snapshot?.raw?.lastDeathLocation || "";
+      const deathScoreIncreased = previousScore != null && score > previousScore;
+      const deathKey = `${player}:${score}`;
+      const virtualMode = ["drop", "chest"].includes(config.mode);
+      const deathLocationChanged = Boolean(lastDeathLocation && lastDeathLocation !== previousDeathLocation);
 
       state.deaths.set(player, score);
+      if (lastDeathLocation) state.lastDeathLocations.set(player, lastDeathLocation);
       if (snapshot) state.snapshots.set(player, snapshot);
+
+      if (deathScoreIncreased && !state.processedDeaths.has(deathKey)) {
+        markProcessedDeath(state, deathKey);
+        if (virtualMode && !deathLocationChanged) {
+          state.lastEvent = {
+            player,
+            mode: config.mode,
+            at: new Date().toISOString(),
+            ok: false,
+            skipped: true,
+            note: "Skipped virtual death-drop action because LastDeathLocation did not change. This prevents duplicate item creation on stale death scores.",
+          };
+        } else {
+          await handleDeathDropEvent(server, i, player, deathEventSnapshot(config, previousSnapshot, snapshot), config, state);
+        }
+      }
     }
 
     state.lastError = null;
