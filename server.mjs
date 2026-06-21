@@ -734,8 +734,13 @@ const readJavaGameRule = async (server, i, rule) => {
 const applyDeathDropGameRules = async (server, i, config) => {
   if (!config.enabled) return null;
   const keepInventory = config.mode === "keep" || config.mode === "drop" || config.mode === "chest";
-  await sendServerCommand(server, i, ["gamerule", "keepInventory", keepInventory ? "true" : "false"]);
-  return keepInventory;
+  const value = keepInventory ? "true" : "false";
+  await sendServerCommand(server, i, ["gamerule", "keepInventory", value]);
+  if (keepInventory) {
+    await sleep(150);
+    await sendServerCommand(server, i, ["gamerule", "keepInventory", value]);
+  }
+  return readJavaGameRule(server, i, "keepInventory").catch(() => null);
 };
 
 const commandNumber = (value, fallback = 0) => {
@@ -1035,8 +1040,8 @@ const deathEventSnapshot = (config, previousSnapshot, currentSnapshot) => {
 const confirmKeepInventoryForVirtualDrops = async (server, i, config) => {
   const current = await readJavaGameRule(server, i, "keepInventory").catch(() => null);
   if (current === true) return true;
-  await applyDeathDropGameRules(server, i, config).catch(() => null);
-  return false;
+  const updated = await applyDeathDropGameRules(server, i, config).catch(() => null);
+  return updated === true;
 };
 
 const handleDeathDropEvent = async (server, i, player, snapshot, config, state) => {
@@ -1959,10 +1964,6 @@ app.post("/api/game/death-drops", async (req, res) => {
     if (!managed) return res.status(400).json({ error: "Save this target before enabling death drops." });
 
     const config = normalizeDeathDropsConfig(req.body?.config || req.body || {});
-    managed.deathDrops = config;
-    server.deathDrops = config;
-    await saveServers();
-
     let appliedKeepInventory = null;
     let note = "Death drop settings saved.";
     const { i, edition } = await getContainerMeta(server);
@@ -1973,10 +1974,21 @@ app.post("/api/game/death-drops", async (req, res) => {
     if (i.State?.Running) {
       await ensureDeathScoreObjective(server, i, getDeathDropMonitor(server));
       appliedKeepInventory = await applyDeathDropGameRules(server, i, config);
+      if (config.enabled && ["drop", "chest"].includes(config.mode) && appliedKeepInventory !== true) {
+        return res.status(409).json({
+          error:
+            "Minecraft did not confirm keepInventory=true, so this mode was not enabled. Drop-at-spot and death chest modes need keepInventory to prevent duplicated or lost items.",
+          keepInventory: appliedKeepInventory,
+        });
+      }
       note = appliedKeepInventory == null ? "Death drop settings saved." : `Death drop settings saved. keepInventory is ${appliedKeepInventory ? "enabled" : "disabled"}.`;
     } else {
       note = "Death drop settings saved. They will apply when the Java server is running.";
     }
+
+    managed.deathDrops = config;
+    server.deathDrops = config;
+    await saveServers();
 
     res.json({
       ok: true,
