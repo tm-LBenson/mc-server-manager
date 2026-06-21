@@ -18,6 +18,7 @@ const DEFAULT_CONTAINER = process.env.MC_CONTAINER || "minecraft-java";
 const CONFIG_PATH = process.env.MC_SERVERS_FILE || path.join(__dirname, "servers.json");
 const DEFAULT_DOCKER_TIMEOUT_MS = Number.parseInt(process.env.DOCKER_TIMEOUT_MS || "20000", 10);
 const QUICK_DOCKER_TIMEOUT_MS = Number.parseInt(process.env.DOCKER_QUICK_TIMEOUT_MS || "6000", 10);
+const CHEST_SCAN_TIMEOUT_MS = Number.parseInt(process.env.CHEST_SCAN_TIMEOUT_MS || "120000", 10);
 const SSH_CONNECT_TIMEOUT_SECONDS = Number.parseInt(process.env.SSH_CONNECT_TIMEOUT_SECONDS || "10", 10);
 const SSH_STRICT_HOST_KEY_CHECKING = process.env.SSH_STRICT_HOST_KEY_CHECKING || "accept-new";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "techtavern";
@@ -535,10 +536,12 @@ const normalizeCoordinate = (value, field) => {
   return String(number);
 };
 
-const normalizeBlockCoordinate = (value, field) => {
-  const number = Number.parseInt(value, 10);
-  if (!Number.isInteger(number)) throw requestError(`${field} must be an integer`);
-  return String(number);
+const normalizeChestScanRange = (value) => {
+  const range = Number.parseInt(value || "5", 10);
+  if (!Number.isInteger(range) || range < 1 || range > 8) {
+    throw requestError("range must be between 1 and 8 blocks");
+  }
+  return range;
 };
 
 const normalizeItemId = (value) => {
@@ -610,6 +613,114 @@ const readJavaSpawn = async (server, i, player) => {
   }
 
   return { x, y, z, dimension };
+};
+
+const parseNearbyChestScan = (raw = "") => {
+  const sections = String(raw || "").split("---MCSM-CHEST---").slice(1);
+  return sections
+    .map((section, index) => {
+      const pos = section.match(/pos=(-?\d+),(-?\d+),(-?\d+)/);
+      if (!pos) return null;
+      const x = Number.parseInt(pos[1], 10);
+      const y = Number.parseInt(pos[2], 10);
+      const z = Number.parseInt(pos[3], 10);
+      const body = section.replace(/^\s*pos=-?\d+,-?\d+,-?\d+\s*/, "").trim();
+      return {
+        label: `Chest ${index + 1}`,
+        x,
+        y,
+        z,
+        items: parseItemObjects(body),
+        raw: body,
+      };
+    })
+    .filter(Boolean);
+};
+
+const scanNearbyChests = async (server, player, range) => {
+  const { i } = await ensureJavaControlServer(server);
+  const snapshot = await collectJavaPlayerSnapshot(server, i, player);
+  if (!snapshot.position) throw requestError(`Could not read ${player}'s current location.`);
+
+  const origin = {
+    x: Math.floor(snapshot.position.x),
+    y: Math.floor(snapshot.position.y),
+    z: Math.floor(snapshot.position.z),
+  };
+  const dimension = snapshot.dimension || "minecraft:overworld";
+  const script = [
+    "set -eu",
+    "dimension=$1",
+    "origin_x=$2",
+    "origin_y=$3",
+    "origin_z=$4",
+    "range=$5",
+    "neg=$((0 - range))",
+    "range2=$((range * range))",
+    "scanned=0",
+    "dx=$neg",
+    'while [ "$dx" -le "$range" ]; do',
+    "  dy=$neg",
+    '  while [ "$dy" -le "$range" ]; do',
+    "    dz=$neg",
+    '    while [ "$dz" -le "$range" ]; do',
+    "      distance2=$((dx * dx + dy * dy + dz * dz))",
+    '      if [ "$distance2" -le "$range2" ]; then',
+    "        x=$((origin_x + dx))",
+    "        y=$((origin_y + dy))",
+    "        z=$((origin_z + dz))",
+    "        scanned=$((scanned + 1))",
+    '        out="$(rcon-cli execute in "$dimension" run data get block "$x" "$y" "$z" Items 2>&1 || true)"',
+    '        case "$out" in',
+    '          *"has the following block data"*)',
+    '            printf "\\n---MCSM-CHEST---\\n"',
+    '            printf "pos=%s,%s,%s\\n" "$x" "$y" "$z"',
+    '            printf "%s\\n" "$out"',
+    "            ;;",
+    "        esac",
+    "      fi",
+    "      dz=$((dz + 1))",
+    "    done",
+    "    dy=$((dy + 1))",
+    "  done",
+    "  dx=$((dx + 1))",
+    "done",
+    'printf "\\n---MCSM-SCAN---\\nscanned=%s\\n" "$scanned"',
+  ].join("\n");
+
+  const raw = await runDocker(
+    server,
+    CHEST_SCAN_TIMEOUT_MS,
+    "exec",
+    server.container,
+    "sh",
+    "-lc",
+    script,
+    "scan-nearby-chests",
+    dimension,
+    String(origin.x),
+    String(origin.y),
+    String(origin.z),
+    String(range),
+  );
+  const scanned = Number.parseInt(raw.match(/---MCSM-SCAN---\s*scanned=(\d+)/)?.[1] || "0", 10);
+  const chests = parseNearbyChestScan(raw)
+    .map((chest) => ({
+      ...chest,
+      distance: Math.sqrt((chest.x - origin.x) ** 2 + (chest.y - origin.y) ** 2 + (chest.z - origin.z) ** 2),
+    }))
+    .sort((a, b) => a.distance - b.distance)
+    .map((chest, index) => ({ ...chest, label: `Chest ${index + 1}` }));
+
+  return {
+    player,
+    range,
+    origin,
+    dimension,
+    scanned,
+    chests,
+    raw,
+  };
 };
 
 const writeServerProperty = async (server, key, value) => {
@@ -1250,24 +1361,12 @@ app.post("/api/game/player/action", async (req, res) => {
   }
 });
 
-app.get("/api/game/block-inventory", async (req, res) => {
+app.get("/api/game/nearby-chests", async (req, res) => {
   try {
     const server = resolveServer(req.query);
-    const x = normalizeBlockCoordinate(req.query?.x, "x");
-    const y = normalizeBlockCoordinate(req.query?.y, "y");
-    const z = normalizeBlockCoordinate(req.query?.z, "z");
-    const { i } = await ensureJavaControlServer(server);
-
-    const result = await sendServerCommand(server, i, ["data", "get", "block", x, y, z, "Items"]);
-
-    res.json({
-      ok: true,
-      x,
-      y,
-      z,
-      items: parseItemObjects(result.stdout),
-      raw: result.stdout || null,
-    });
+    const player = normalizeJavaPlayerName(req.query?.player);
+    const range = normalizeChestScanRange(req.query?.range);
+    res.json({ ok: true, ...(await scanNearbyChests(server, player, range)) });
   } catch (error) {
     res.status(javaErrorStatus(error)).json({ error: String(error.message || error) });
   }

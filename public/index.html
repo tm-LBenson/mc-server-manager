@@ -850,7 +850,7 @@
             <div class="form-row">
               <button id="gameRefreshPlayersBtn" class="btn subtle" type="button" data-java-control>Refresh Players</button>
               <button id="openPlayerActionsBtn" class="btn" type="button" data-java-control>Actions</button>
-              <button id="openBlockInventoryBtn" class="btn" type="button" data-java-control>Block Inventory</button>
+              <button id="openBlockInventoryBtn" class="btn" type="button" data-java-control>Nearby Chests</button>
               <button id="openMobToolsBtn" class="btn" type="button" data-java-control>Mob Tools</button>
             </div>
           </div>
@@ -1180,24 +1180,16 @@
 
     <dialog id="blockInventoryDialog" class="modal wide" aria-labelledby="blockInventoryHeading">
       <div class="modal-header">
-        <h2 id="blockInventoryHeading">Block Inventory</h2>
+        <h2 id="blockInventoryHeading">Nearby Chests</h2>
         <button class="btn subtle" type="button" data-close-dialog="blockInventoryDialog">Close</button>
       </div>
       <div class="modal-body">
         <div class="form-row">
-          <div class="field" style="width: 130px">
-            <label for="blockXInput">X</label>
-            <input id="blockXInput" inputmode="numeric" placeholder="0" data-java-control />
+          <div class="field grow">
+            <label for="chestRangeInput">Range</label>
+            <input id="chestRangeInput" inputmode="numeric" value="5" data-java-control />
           </div>
-          <div class="field" style="width: 130px">
-            <label for="blockYInput">Y</label>
-            <input id="blockYInput" inputmode="numeric" placeholder="64" data-java-control />
-          </div>
-          <div class="field" style="width: 130px">
-            <label for="blockZInput">Z</label>
-            <input id="blockZInput" inputmode="numeric" placeholder="0" data-java-control />
-          </div>
-          <button id="blockInventoryBtn" class="btn primary" type="button" data-java-control>Inspect Block</button>
+          <button id="blockInventoryBtn" class="btn primary" type="button" data-java-control>Inspect Nearby</button>
         </div>
         <div id="blockInventoryMessage" class="status-line" role="status" aria-live="polite"></div>
         <div id="blockInventoryTable" class="table-wrap"></div>
@@ -1243,9 +1235,7 @@
         blockInventoryMessage: document.getElementById("blockInventoryMessage"),
         blockInventoryRaw: document.getElementById("blockInventoryRaw"),
         blockInventoryTable: document.getElementById("blockInventoryTable"),
-        blockXInput: document.getElementById("blockXInput"),
-        blockYInput: document.getElementById("blockYInput"),
-        blockZInput: document.getElementById("blockZInput"),
+        chestRangeInput: document.getElementById("chestRangeInput"),
         containerSelect: document.getElementById("containerSelect"),
         containersWrap: document.getElementById("containersWrap"),
         confirmAcceptBtn: document.getElementById("confirmAcceptBtn"),
@@ -1868,6 +1858,45 @@
         target.replaceChildren(table);
       }
 
+      function renderNearbyChests(target, chests = []) {
+        if (!chests.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No nearby chests or inventory blocks found";
+          target.replaceChildren(empty);
+          return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        chests.forEach((chest, index) => {
+          const details = document.createElement("details");
+          details.open = index === 0;
+
+          const summary = document.createElement("summary");
+          const itemCount = (chest.items || []).reduce((total, item) => total + (Number(item.count) || 0), 0);
+          summary.textContent = `${chest.label || `Chest ${index + 1}`}: ${chest.x}, ${chest.y}, ${chest.z} (${itemCount} item${itemCount === 1 ? "" : "s"})`;
+          details.append(summary);
+
+          const select = document.createElement("select");
+          select.style.marginTop = "10px";
+          select.setAttribute("aria-label", `${chest.label || `Chest ${index + 1}`} items`);
+
+          if (!chest.items?.length) {
+            select.add(new Option("Empty", ""));
+          } else {
+            chest.items.forEach((item) => {
+              const slot = item.slot == null ? "?" : item.slot;
+              select.add(new Option(`${item.count || 1}x ${item.id} (slot ${slot})`, item.id));
+            });
+          }
+
+          details.append(select);
+          fragment.append(details);
+        });
+
+        target.replaceChildren(fragment);
+      }
+
       function renderGameAvailability(info = state.info) {
         const javaReady = info?.edition === "java" && Boolean(info?.running);
         const message =
@@ -2007,23 +2036,34 @@
         });
       }
 
-      async function inspectBlockInventory() {
-        return withBusy("block-inventory", async () => {
-          setMessage(el.blockInventoryMessage, "Inspecting block...");
+      async function inspectNearbyChests() {
+        const player = selectedGamePlayer();
+        if (!player) {
+          setMessage(el.blockInventoryMessage, "Choose an online player first", "error");
+          return null;
+        }
+
+        return withBusy("nearby-chests", async () => {
+          setMessage(el.blockInventoryMessage, "Inspecting nearby chests...");
           try {
             const data = await api(
-              endpointWithTargetParams("/api/game/block-inventory", {
-                x: el.blockXInput.value,
-                y: el.blockYInput.value,
-                z: el.blockZInput.value,
+              endpointWithTargetParams("/api/game/nearby-chests", {
+                player,
+                range: el.chestRangeInput.value,
               }),
+              {},
+              130000,
             );
-            renderItemTable(el.blockInventoryTable, data.items || [], "No inventory items found at that block");
+            renderNearbyChests(el.blockInventoryTable, data.chests || []);
             el.blockInventoryRaw.textContent = data.raw || "";
-            setMessage(el.blockInventoryMessage, `${(data.items || []).length} item stack${(data.items || []).length === 1 ? "" : "s"} found`, "success");
+            setMessage(
+              el.blockInventoryMessage,
+              `${(data.chests || []).length} chest${(data.chests || []).length === 1 ? "" : "s"} found near ${data.player}; scanned ${data.scanned || 0} blocks`,
+              "success",
+            );
             return data;
           } catch (error) {
-            renderItemTable(el.blockInventoryTable, [], "No block inventory loaded");
+            renderNearbyChests(el.blockInventoryTable, []);
             el.blockInventoryRaw.textContent = "";
             setMessage(el.blockInventoryMessage, error.message, "error");
             return null;
@@ -2633,7 +2673,7 @@
           targetPlayer: el.gameTeleportTargetInput.value,
         }),
       );
-      el.blockInventoryBtn.addEventListener("click", inspectBlockInventory);
+      el.blockInventoryBtn.addEventListener("click", inspectNearbyChests);
       el.happyGhastSpeedBtn.addEventListener("click", setHappyGhastSpeed);
       el.logsBtn.addEventListener("click", showLogs);
       el.logLines.addEventListener("keydown", (event) => {
