@@ -731,16 +731,56 @@ const readJavaGameRule = async (server, i, rule) => {
   return match ? match[1].toLowerCase() === "true" : null;
 };
 
+const KEEP_INVENTORY_RULES = ["minecraft:keep_inventory", "keepInventory", "keepinventory"];
+
+const readKeepInventoryGameRule = async (server, i) => {
+  let lastError = null;
+  for (const rule of KEEP_INVENTORY_RULES) {
+    try {
+      const value = await readJavaGameRule(server, i, rule);
+      if (value !== null) return { rule, value };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  return {
+    rule: null,
+    value: null,
+    error: lastError ? String(lastError.message || lastError) : "No supported keepInventory gamerule name was accepted.",
+  };
+};
+
+const setKeepInventoryGameRule = async (server, i, enabled) => {
+  const value = enabled ? "true" : "false";
+  let lastError = null;
+
+  for (const rule of KEEP_INVENTORY_RULES) {
+    try {
+      await sendServerCommand(server, i, ["gamerule", rule, value]);
+      if (enabled) {
+        await sleep(150);
+        await sendServerCommand(server, i, ["gamerule", rule, value]);
+      }
+      const confirmed = await readJavaGameRule(server, i, rule);
+      if (confirmed === enabled) return { rule, value: confirmed };
+      lastError = new Error(`${rule} returned ${confirmed}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  return {
+    rule: null,
+    value: null,
+    error: lastError ? String(lastError.message || lastError) : "No supported keepInventory gamerule name was accepted.",
+  };
+};
+
 const applyDeathDropGameRules = async (server, i, config) => {
   if (!config.enabled) return null;
   const keepInventory = config.mode === "keep" || config.mode === "drop" || config.mode === "chest";
-  const value = keepInventory ? "true" : "false";
-  await sendServerCommand(server, i, ["gamerule", "keepInventory", value]);
-  if (keepInventory) {
-    await sleep(150);
-    await sendServerCommand(server, i, ["gamerule", "keepInventory", value]);
-  }
-  return readJavaGameRule(server, i, "keepInventory").catch(() => null);
+  const result = await setKeepInventoryGameRule(server, i, keepInventory);
+  return result.value;
 };
 
 const commandNumber = (value, fallback = 0) => {
@@ -1038,8 +1078,8 @@ const deathEventSnapshot = (config, previousSnapshot, currentSnapshot) => {
 };
 
 const confirmKeepInventoryForVirtualDrops = async (server, i, config) => {
-  const current = await readJavaGameRule(server, i, "keepInventory").catch(() => null);
-  if (current === true) return true;
+  const current = await readKeepInventoryGameRule(server, i).catch(() => ({ value: null }));
+  if (current.value === true) return true;
   const updated = await applyDeathDropGameRules(server, i, config).catch(() => null);
   return updated === true;
 };
@@ -1940,6 +1980,8 @@ app.get("/api/game/death-drops", async (req, res) => {
       running: false,
       edition: "unknown",
       keepInventory: null,
+      keepInventoryRule: null,
+      keepInventoryError: null,
     };
 
     const { i, edition } = await getContainerMeta(server);
@@ -1948,7 +1990,10 @@ app.get("/api/game/death-drops", async (req, res) => {
     response.available = edition === "java" && response.running;
 
     if (response.available) {
-      response.keepInventory = await readJavaGameRule(server, i, "keepInventory").catch(() => null);
+      const keepInventory = await readKeepInventoryGameRule(server, i);
+      response.keepInventory = keepInventory.value;
+      response.keepInventoryRule = keepInventory.rule;
+      response.keepInventoryError = keepInventory.error || null;
     }
 
     res.json(response);
@@ -1974,14 +2019,20 @@ app.post("/api/game/death-drops", async (req, res) => {
     if (i.State?.Running) {
       await ensureDeathScoreObjective(server, i, getDeathDropMonitor(server));
       appliedKeepInventory = await applyDeathDropGameRules(server, i, config);
+      const keepInventoryState = await readKeepInventoryGameRule(server, i);
+      appliedKeepInventory = keepInventoryState.value;
       if (config.enabled && ["drop", "chest"].includes(config.mode) && appliedKeepInventory !== true) {
+        const detail = keepInventoryState.error ? ` Last error: ${keepInventoryState.error}` : "";
         return res.status(409).json({
           error:
-            "Minecraft did not confirm keepInventory=true, so this mode was not enabled. Drop-at-spot and death chest modes need keepInventory to prevent duplicated or lost items.",
+            `Minecraft did not confirm keepInventory=true, so this mode was not enabled. Drop-at-spot and death chest modes need keepInventory to prevent duplicated or lost items.${detail}`,
           keepInventory: appliedKeepInventory,
+          keepInventoryRule: keepInventoryState.rule,
+          keepInventoryError: keepInventoryState.error || null,
         });
       }
-      note = appliedKeepInventory == null ? "Death drop settings saved." : `Death drop settings saved. keepInventory is ${appliedKeepInventory ? "enabled" : "disabled"}.`;
+      const ruleText = keepInventoryState.rule ? ` via ${keepInventoryState.rule}` : "";
+      note = appliedKeepInventory == null ? "Death drop settings saved." : `Death drop settings saved. keepInventory is ${appliedKeepInventory ? "enabled" : "disabled"}${ruleText}.`;
     } else {
       note = "Death drop settings saved. They will apply when the Java server is running.";
     }
@@ -1994,6 +2045,7 @@ app.post("/api/game/death-drops", async (req, res) => {
       ok: true,
       config,
       appliedKeepInventory,
+      keepInventoryRule: i.State?.Running ? (await readKeepInventoryGameRule(server, i)).rule : null,
       note,
       monitor: publicDeathDropMonitor(server),
     });

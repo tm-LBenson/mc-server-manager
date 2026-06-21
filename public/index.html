@@ -2524,6 +2524,8 @@
         const rows = [
           ["Available", data.available ? "Yes" : "No"],
           ["keepInventory", data.keepInventory == null ? "-" : data.keepInventory ? "Enabled" : "Disabled"],
+          ["Rule Name", data.keepInventoryRule || "-"],
+          ["Rule Error", data.keepInventoryError || "-"],
           ["Tracked Players", (data.monitor?.trackedPlayers || []).join(", ") || "-"],
           ["Last Check", data.monitor?.lastCheck || "-"],
           ["Last Event", lastEvent ? `${lastEvent.player} - ${lastEvent.mode} - ${lastEvent.ok ? "ok" : "error"}` : "-"],
