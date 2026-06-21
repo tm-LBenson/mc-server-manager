@@ -605,6 +605,15 @@
         padding: 0;
       }
 
+      .modal.wide {
+        width: min(860px, calc(100% - 32px));
+      }
+
+      .modal.wide .modal-body {
+        max-height: calc(88vh - 116px);
+        overflow: auto;
+      }
+
       .modal::backdrop {
         background: rgba(5, 8, 6, 0.72);
         backdrop-filter: blur(2px);
@@ -838,7 +847,12 @@
         <section class="panel" aria-labelledby="controlHeading">
           <div class="panel-header">
             <h2 id="controlHeading">Player State</h2>
-            <button id="gameRefreshPlayersBtn" class="btn subtle" type="button" data-java-control>Refresh Players</button>
+            <div class="form-row">
+              <button id="gameRefreshPlayersBtn" class="btn subtle" type="button" data-java-control>Refresh Players</button>
+              <button id="openPlayerActionsBtn" class="btn" type="button" data-java-control>Actions</button>
+              <button id="openBlockInventoryBtn" class="btn" type="button" data-java-control>Block Inventory</button>
+              <button id="openMobToolsBtn" class="btn" type="button" data-java-control>Mob Tools</button>
+            </div>
           </div>
           <div class="panel-body">
             <div id="gameUnavailable" class="empty hidden">Control Center tools are available for Java servers. Bedrock controls are disabled for now.</div>
@@ -879,106 +893,6 @@
               <summary>Raw player data</summary>
               <pre id="gamePlayerRaw"></pre>
             </details>
-          </div>
-        </section>
-
-        <section class="panel" aria-labelledby="playerActionsHeading">
-          <div class="panel-header">
-            <h2 id="playerActionsHeading">Player Actions</h2>
-          </div>
-          <div class="panel-body">
-            <div class="form-row">
-              <button id="gameTeleportHomeBtn" class="btn primary" type="button" data-java-control>Teleport Home</button>
-              <button id="gameHealBtn" class="btn" type="button" data-java-control>Heal</button>
-              <button id="gameFeedBtn" class="btn" type="button" data-java-control>Feed</button>
-              <button id="gameClearInventoryBtn" class="btn danger" type="button" data-java-control>Clear Inventory</button>
-            </div>
-            <div class="form-row">
-              <div class="field">
-                <label for="gameModeSelect">Game Mode</label>
-                <select id="gameModeSelect" data-java-control>
-                  <option value="survival">Survival</option>
-                  <option value="creative">Creative</option>
-                  <option value="adventure">Adventure</option>
-                  <option value="spectator">Spectator</option>
-                </select>
-              </div>
-              <button id="gameSetModeBtn" class="btn" type="button" data-java-control>Set Mode</button>
-              <div class="field grow">
-                <label for="gameItemInput">Give Item</label>
-                <input id="gameItemInput" autocomplete="off" value="minecraft:ender_pearl" data-java-control />
-              </div>
-              <div class="field" style="width: 120px">
-                <label for="gameItemCountInput">Count</label>
-                <input id="gameItemCountInput" inputmode="numeric" value="1" data-java-control />
-              </div>
-              <button id="gameGiveItemBtn" class="btn" type="button" data-java-control>Give</button>
-            </div>
-            <div class="form-row">
-              <div class="field" style="width: 130px">
-                <label for="gameTeleportXInput">X</label>
-                <input id="gameTeleportXInput" inputmode="decimal" placeholder="0" data-java-control />
-              </div>
-              <div class="field" style="width: 130px">
-                <label for="gameTeleportYInput">Y</label>
-                <input id="gameTeleportYInput" inputmode="decimal" placeholder="64" data-java-control />
-              </div>
-              <div class="field" style="width: 130px">
-                <label for="gameTeleportZInput">Z</label>
-                <input id="gameTeleportZInput" inputmode="decimal" placeholder="0" data-java-control />
-              </div>
-              <button id="gameTeleportCoordsBtn" class="btn" type="button" data-java-control>Teleport</button>
-              <div class="field grow">
-                <label for="gameTeleportTargetInput">To Player</label>
-                <input id="gameTeleportTargetInput" autocomplete="off" placeholder="Other player" data-java-control />
-              </div>
-              <button id="gameTeleportPlayerBtn" class="btn" type="button" data-java-control>Send</button>
-            </div>
-          </div>
-        </section>
-
-        <section class="panel" aria-labelledby="blockInventoryHeading">
-          <div class="panel-header">
-            <h2 id="blockInventoryHeading">Block Inventory</h2>
-          </div>
-          <div class="panel-body">
-            <div class="form-row">
-              <div class="field" style="width: 130px">
-                <label for="blockXInput">X</label>
-                <input id="blockXInput" inputmode="numeric" placeholder="0" data-java-control />
-              </div>
-              <div class="field" style="width: 130px">
-                <label for="blockYInput">Y</label>
-                <input id="blockYInput" inputmode="numeric" placeholder="64" data-java-control />
-              </div>
-              <div class="field" style="width: 130px">
-                <label for="blockZInput">Z</label>
-                <input id="blockZInput" inputmode="numeric" placeholder="0" data-java-control />
-              </div>
-              <button id="blockInventoryBtn" class="btn primary" type="button" data-java-control>Inspect Block</button>
-            </div>
-            <div id="blockInventoryMessage" class="status-line" role="status" aria-live="polite"></div>
-            <div id="blockInventoryTable" class="table-wrap"></div>
-            <details>
-              <summary>Raw block data</summary>
-              <pre id="blockInventoryRaw"></pre>
-            </details>
-          </div>
-        </section>
-
-        <section class="panel" aria-labelledby="mobToolsHeading">
-          <div class="panel-header">
-            <h2 id="mobToolsHeading">Mob Tools</h2>
-          </div>
-          <div class="panel-body">
-            <div class="form-row">
-              <div class="field grow">
-                <label for="happyGhastSpeedInput">Happy Ghast Flying Speed</label>
-                <input id="happyGhastSpeedInput" inputmode="decimal" value="0.2" data-java-control />
-              </div>
-              <button id="happyGhastSpeedBtn" class="btn primary" type="button" data-java-control>Apply</button>
-            </div>
-            <div id="mobToolsMessage" class="status-line" role="status" aria-live="polite"></div>
           </div>
         </section>
       </section>
@@ -1208,6 +1122,109 @@
       </div>
     </dialog>
 
+    <dialog id="playerActionsDialog" class="modal wide" aria-labelledby="playerActionsHeading">
+      <div class="modal-header">
+        <h2 id="playerActionsHeading">Player Actions</h2>
+        <button class="btn subtle" type="button" data-close-dialog="playerActionsDialog">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <button id="gameTeleportHomeBtn" class="btn primary" type="button" data-java-control>Teleport Home</button>
+          <button id="gameHealBtn" class="btn" type="button" data-java-control>Heal</button>
+          <button id="gameFeedBtn" class="btn" type="button" data-java-control>Feed</button>
+          <button id="gameClearInventoryBtn" class="btn danger" type="button" data-java-control>Clear Inventory</button>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="gameModeSelect">Game Mode</label>
+            <select id="gameModeSelect" data-java-control>
+              <option value="survival">Survival</option>
+              <option value="creative">Creative</option>
+              <option value="adventure">Adventure</option>
+              <option value="spectator">Spectator</option>
+            </select>
+          </div>
+          <button id="gameSetModeBtn" class="btn" type="button" data-java-control>Set Mode</button>
+          <div class="field grow">
+            <label for="gameItemInput">Give Item</label>
+            <input id="gameItemInput" autocomplete="off" value="minecraft:ender_pearl" data-java-control />
+          </div>
+          <div class="field" style="width: 120px">
+            <label for="gameItemCountInput">Count</label>
+            <input id="gameItemCountInput" inputmode="numeric" value="1" data-java-control />
+          </div>
+          <button id="gameGiveItemBtn" class="btn" type="button" data-java-control>Give</button>
+        </div>
+        <div class="form-row">
+          <div class="field" style="width: 130px">
+            <label for="gameTeleportXInput">X</label>
+            <input id="gameTeleportXInput" inputmode="decimal" placeholder="0" data-java-control />
+          </div>
+          <div class="field" style="width: 130px">
+            <label for="gameTeleportYInput">Y</label>
+            <input id="gameTeleportYInput" inputmode="decimal" placeholder="64" data-java-control />
+          </div>
+          <div class="field" style="width: 130px">
+            <label for="gameTeleportZInput">Z</label>
+            <input id="gameTeleportZInput" inputmode="decimal" placeholder="0" data-java-control />
+          </div>
+          <button id="gameTeleportCoordsBtn" class="btn" type="button" data-java-control>Teleport</button>
+          <div class="field grow">
+            <label for="gameTeleportTargetInput">To Player</label>
+            <input id="gameTeleportTargetInput" autocomplete="off" placeholder="Other player" data-java-control />
+          </div>
+          <button id="gameTeleportPlayerBtn" class="btn" type="button" data-java-control>Send</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="blockInventoryDialog" class="modal wide" aria-labelledby="blockInventoryHeading">
+      <div class="modal-header">
+        <h2 id="blockInventoryHeading">Block Inventory</h2>
+        <button class="btn subtle" type="button" data-close-dialog="blockInventoryDialog">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field" style="width: 130px">
+            <label for="blockXInput">X</label>
+            <input id="blockXInput" inputmode="numeric" placeholder="0" data-java-control />
+          </div>
+          <div class="field" style="width: 130px">
+            <label for="blockYInput">Y</label>
+            <input id="blockYInput" inputmode="numeric" placeholder="64" data-java-control />
+          </div>
+          <div class="field" style="width: 130px">
+            <label for="blockZInput">Z</label>
+            <input id="blockZInput" inputmode="numeric" placeholder="0" data-java-control />
+          </div>
+          <button id="blockInventoryBtn" class="btn primary" type="button" data-java-control>Inspect Block</button>
+        </div>
+        <div id="blockInventoryMessage" class="status-line" role="status" aria-live="polite"></div>
+        <div id="blockInventoryTable" class="table-wrap"></div>
+        <details>
+          <summary>Raw block data</summary>
+          <pre id="blockInventoryRaw"></pre>
+        </details>
+      </div>
+    </dialog>
+
+    <dialog id="mobToolsDialog" class="modal wide" aria-labelledby="mobToolsHeading">
+      <div class="modal-header">
+        <h2 id="mobToolsHeading">Mob Tools</h2>
+        <button class="btn subtle" type="button" data-close-dialog="mobToolsDialog">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field grow">
+            <label for="happyGhastSpeedInput">Happy Ghast Flying Speed</label>
+            <input id="happyGhastSpeedInput" inputmode="decimal" value="0.2" data-java-control />
+          </div>
+          <button id="happyGhastSpeedBtn" class="btn primary" type="button" data-java-control>Apply</button>
+        </div>
+        <div id="mobToolsMessage" class="status-line" role="status" aria-live="polite"></div>
+      </div>
+    </dialog>
+
     <script>
       const state = {
         activeTarget: "",
@@ -1281,7 +1298,13 @@
         logsBtn: document.getElementById("logsBtn"),
         logoutBtn: document.getElementById("logoutBtn"),
         newServerBtn: document.getElementById("newServerBtn"),
+        openBlockInventoryBtn: document.getElementById("openBlockInventoryBtn"),
+        openMobToolsBtn: document.getElementById("openMobToolsBtn"),
+        openPlayerActionsBtn: document.getElementById("openPlayerActionsBtn"),
         operationMessage: document.getElementById("operationMessage"),
+        blockInventoryDialog: document.getElementById("blockInventoryDialog"),
+        mobToolsDialog: document.getElementById("mobToolsDialog"),
+        playerActionsDialog: document.getElementById("playerActionsDialog"),
         playerInput: document.getElementById("playerInput"),
         portsMetric: document.getElementById("portsMetric"),
         propertiesMessage: document.getElementById("propertiesMessage"),
@@ -1406,6 +1429,14 @@
           el.confirmDialog.showModal();
           el.confirmCancelBtn.focus();
         });
+      }
+
+      function openDialog(dialog) {
+        if (dialog && !dialog.open) dialog.showModal();
+      }
+
+      function closeDialog(dialog) {
+        if (dialog?.open) dialog.close();
       }
 
       function targetName() {
@@ -2503,6 +2534,14 @@
       el.confirmDialog.addEventListener("click", (event) => {
         if (event.target === el.confirmDialog) settleConfirmDialog(false);
       });
+      document.querySelectorAll("[data-close-dialog]").forEach((button) => {
+        button.addEventListener("click", () => closeDialog(document.getElementById(button.dataset.closeDialog)));
+      });
+      [el.playerActionsDialog, el.blockInventoryDialog, el.mobToolsDialog].forEach((dialog) => {
+        dialog.addEventListener("click", (event) => {
+          if (event.target === dialog) closeDialog(dialog);
+        });
+      });
       el.logoutBtn.addEventListener("click", async () => {
         await fetch("/api/logout", { method: "POST" }).catch(() => null);
         window.location.href = "/login";
@@ -2552,6 +2591,9 @@
       el.addPlayerBtn.addEventListener("click", () => changePlayer("add"));
       el.unlockPlayerBtn.addEventListener("click", unlockPlayer);
       el.removePlayerBtn.addEventListener("click", () => changePlayer("remove"));
+      el.openPlayerActionsBtn.addEventListener("click", () => openDialog(el.playerActionsDialog));
+      el.openBlockInventoryBtn.addEventListener("click", () => openDialog(el.blockInventoryDialog));
+      el.openMobToolsBtn.addEventListener("click", () => openDialog(el.mobToolsDialog));
       el.gameRefreshPlayersBtn.addEventListener("click", () => loadGameStatus({ inspectSelected: true }));
       el.gameLoadPlayerBtn.addEventListener("click", loadPlayerDetails);
       el.gamePlayerSelect.addEventListener("change", loadPlayerDetails);
