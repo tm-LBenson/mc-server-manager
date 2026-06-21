@@ -28,6 +28,12 @@ const normalizeTimeout = (value, fallback) => (Number.isFinite(value) && value >
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const requestError = (message, status = 400) => {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+};
+
 const slug = (value, fallback = "server") => {
   const cleaned = String(value || "")
     .toLowerCase()
@@ -338,6 +344,14 @@ const normalizePlayerName = (value) => {
   return player;
 };
 
+const normalizeJavaPlayerName = (value, field = "player") => {
+  const player = normalizePlayerName(value);
+  if (!/^[A-Za-z0-9_]{1,16}$/.test(player)) {
+    throw requestError(`${field} must be a Java username`);
+  }
+  return player;
+};
+
 const sendServerCommand = async (server, containerInspect, args) => {
   const edition = detectEdition(containerInspect.Config?.Image || "");
 
@@ -356,6 +370,15 @@ const sendServerCommand = async (server, containerInspect, args) => {
   }
 
   throw new Error(`unsupported container image for server commands: ${containerInspect.Config?.Image || "unknown"}`);
+};
+
+const ensureJavaControlServer = async (server) => {
+  const { i, edition } = await getContainerMeta(server);
+  ensureRunning(i);
+  if (edition !== "java") {
+    throw requestError("Control Center tools are currently available for Java servers only.");
+  }
+  return { i, edition };
 };
 
 const sendServerCommandWhenReady = async (server, args, timeoutMs = 30000) => {
@@ -396,6 +419,198 @@ const parseBooleanFlag = (value, field = "enabled") => {
 };
 
 const booleanPropertyValue = (enabled) => (enabled ? "true" : "false");
+
+const dataPayload = (stdout = "") => {
+  const text = String(stdout || "").trim();
+  const marker = "data:";
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex !== -1) return text.slice(markerIndex + marker.length).trim();
+  const colonIndex = text.indexOf(":");
+  return colonIndex === -1 ? text : text.slice(colonIndex + 1).trim();
+};
+
+const parseDataNumber = (stdout = "") => {
+  const payload = dataPayload(stdout);
+  const match = payload.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const value = Number.parseFloat(match[0]);
+  return Number.isFinite(value) ? value : null;
+};
+
+const parseDataString = (stdout = "") => {
+  const payload = dataPayload(stdout);
+  const quoted = payload.match(/"([^"]+)"/);
+  if (quoted) return quoted[1];
+  return payload || null;
+};
+
+const parsePosition = (stdout = "") => {
+  const payload = dataPayload(stdout);
+  const match = payload.match(/\[([^\]]+)\]/);
+  if (!match) return null;
+  const values = match[1]
+    .split(",")
+    .map((part) => Number.parseFloat(part.replace(/[dDfFbBsSlL]/g, "").trim()))
+    .filter((value) => Number.isFinite(value));
+  return values.length === 3 ? { x: values[0], y: values[1], z: values[2] } : null;
+};
+
+const parseOnlinePlayers = (stdout = "") => {
+  const text = String(stdout || "").trim();
+  const match = text.match(/players online:\s*(.*)$/i);
+  if (!match || !match[1].trim()) return [];
+  return match[1]
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+};
+
+const extractTopLevelObjects = (value = "") => {
+  const objects = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let quote = "";
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      inString = true;
+      quote = char;
+      continue;
+    }
+
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0 && start !== -1) {
+        objects.push(value.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return objects;
+};
+
+const parseItemObjects = (stdout = "") => {
+  const payload = dataPayload(stdout);
+  return extractTopLevelObjects(payload)
+    .map((object) => {
+      const id = object.match(/\bid\s*:\s*"([^"]+)"/i)?.[1] || object.match(/\bid\s*:\s*'([^']+)'/i)?.[1] || null;
+      if (!id) return null;
+      const slotRaw = object.match(/\b(?:Slot|slot)\s*:\s*(-?\d+)/)?.[1];
+      const countRaw = object.match(/\b(?:Count|count)\s*:\s*(-?\d+)/)?.[1];
+      return {
+        slot: slotRaw == null ? null : Number.parseInt(slotRaw, 10),
+        id,
+        count: countRaw == null ? 1 : Number.parseInt(countRaw, 10),
+        raw: object,
+      };
+    })
+    .filter(Boolean);
+};
+
+const normalizeCoordinate = (value, field) => {
+  const number = Number.parseFloat(value);
+  if (!Number.isFinite(number)) throw requestError(`${field} must be a number`);
+  return String(number);
+};
+
+const normalizeBlockCoordinate = (value, field) => {
+  const number = Number.parseInt(value, 10);
+  if (!Number.isInteger(number)) throw requestError(`${field} must be an integer`);
+  return String(number);
+};
+
+const normalizeItemId = (value) => {
+  const item = String(value || "").trim().toLowerCase();
+  if (!/^(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+$/.test(item)) throw requestError("item must be a valid item id");
+  return item.includes(":") ? item : `minecraft:${item}`;
+};
+
+const normalizeCount = (value, fallback = 1, max = 640) => {
+  const count = Number.parseInt(value || fallback, 10);
+  if (!Number.isInteger(count) || count < 1 || count > max) throw requestError(`count must be between 1 and ${max}`);
+  return String(count);
+};
+
+const normalizeGameMode = (value) => {
+  const mode = String(value || "").toLowerCase();
+  if (!["survival", "creative", "adventure", "spectator"].includes(mode)) {
+    throw requestError("game mode must be survival, creative, adventure, or spectator");
+  }
+  return mode;
+};
+
+const javaErrorStatus = (error) => error.status || 500;
+
+const collectJavaPlayerSnapshot = async (server, i, player) => {
+  const [positionResult, dimensionResult, healthResult, foodResult, inventoryResult] = await Promise.allSettled([
+    sendServerCommand(server, i, ["data", "get", "entity", player, "Pos"]),
+    sendServerCommand(server, i, ["data", "get", "entity", player, "Dimension"]),
+    sendServerCommand(server, i, ["data", "get", "entity", player, "Health"]),
+    sendServerCommand(server, i, ["data", "get", "entity", player, "foodLevel"]),
+    sendServerCommand(server, i, ["data", "get", "entity", player, "Inventory"]),
+  ]);
+
+  const valueFrom = (result) => (result.status === "fulfilled" ? result.value.stdout || "" : "");
+
+  return {
+    player,
+    position: parsePosition(valueFrom(positionResult)),
+    dimension: parseDataString(valueFrom(dimensionResult)),
+    health: parseDataNumber(valueFrom(healthResult)),
+    food: parseDataNumber(valueFrom(foodResult)),
+    inventory: parseItemObjects(valueFrom(inventoryResult)),
+    raw: {
+      position: valueFrom(positionResult),
+      dimension: valueFrom(dimensionResult),
+      health: valueFrom(healthResult),
+      food: valueFrom(foodResult),
+      inventory: valueFrom(inventoryResult),
+    },
+  };
+};
+
+const readJavaSpawn = async (server, i, player) => {
+  const [xResult, yResult, zResult, dimensionResult] = await Promise.allSettled([
+    sendServerCommand(server, i, ["data", "get", "entity", player, "SpawnX"]),
+    sendServerCommand(server, i, ["data", "get", "entity", player, "SpawnY"]),
+    sendServerCommand(server, i, ["data", "get", "entity", player, "SpawnZ"]),
+    sendServerCommand(server, i, ["data", "get", "entity", player, "SpawnDimension"]),
+  ]);
+
+  const valueFrom = (result) => (result.status === "fulfilled" ? result.value.stdout || "" : "");
+  const x = parseDataNumber(valueFrom(xResult));
+  const y = parseDataNumber(valueFrom(yResult));
+  const z = parseDataNumber(valueFrom(zResult));
+  const dimension = parseDataString(valueFrom(dimensionResult)) || "minecraft:overworld";
+
+  if (![x, y, z].every((value) => Number.isFinite(value))) {
+    throw requestError(`${player} does not have a bed spawn recorded.`);
+  }
+
+  return { x, y, z, dimension };
+};
 
 const writeServerProperty = async (server, key, value) => {
   assertServerProperty(key);
@@ -934,6 +1149,152 @@ app.post("/api/player/unlock", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
+  }
+});
+
+app.get("/api/game/status", async (req, res) => {
+  try {
+    const server = resolveServer(req.query);
+    const { i, edition } = await getContainerMeta(server);
+    const running = !!i.State?.Running;
+
+    if (edition !== "java") {
+      return res.json({
+        edition,
+        running,
+        available: false,
+        message: "Control Center tools are currently available for Java servers only.",
+        players: [],
+      });
+    }
+
+    ensureRunning(i);
+    const result = await sendServerCommand(server, i, ["list"]);
+    const players = parseOnlinePlayers(result.stdout);
+
+    res.json({
+      edition,
+      running,
+      available: true,
+      players,
+      stdout: result.stdout || null,
+    });
+  } catch (error) {
+    res.status(javaErrorStatus(error)).json({ error: String(error.message || error) });
+  }
+});
+
+app.get("/api/game/player", async (req, res) => {
+  try {
+    const server = resolveServer(req.query);
+    const player = normalizeJavaPlayerName(req.query?.player);
+    const { i } = await ensureJavaControlServer(server);
+
+    res.json({
+      ok: true,
+      ...(await collectJavaPlayerSnapshot(server, i, player)),
+    });
+  } catch (error) {
+    res.status(javaErrorStatus(error)).json({ error: String(error.message || error) });
+  }
+});
+
+app.post("/api/game/player/action", async (req, res) => {
+  try {
+    const server = resolveServer(req.body);
+    const player = normalizeJavaPlayerName(req.body?.player);
+    const action = String(req.body?.action || "").trim();
+    const { i } = await ensureJavaControlServer(server);
+    let command = null;
+
+    if (action === "teleport-coords") {
+      command = [
+        "tp",
+        player,
+        normalizeCoordinate(req.body?.x, "x"),
+        normalizeCoordinate(req.body?.y, "y"),
+        normalizeCoordinate(req.body?.z, "z"),
+      ];
+    } else if (action === "teleport-player") {
+      command = ["tp", player, normalizeJavaPlayerName(req.body?.targetPlayer, "target player")];
+    } else if (action === "teleport-home") {
+      const spawn = await readJavaSpawn(server, i, player);
+      command = ["execute", "in", spawn.dimension, "run", "tp", player, String(spawn.x), String(spawn.y), String(spawn.z)];
+    } else if (action === "gamemode") {
+      command = ["gamemode", normalizeGameMode(req.body?.mode), player];
+    } else if (action === "give") {
+      command = ["give", player, normalizeItemId(req.body?.item), normalizeCount(req.body?.count, 1, 640)];
+    } else if (action === "clear") {
+      command = ["clear", player];
+    } else if (action === "heal") {
+      command = ["effect", "give", player, "minecraft:instant_health", "1", "20", "true"];
+    } else if (action === "feed") {
+      command = ["effect", "give", player, "minecraft:saturation", "1", "20", "true"];
+    } else {
+      return res.status(400).json({ error: "unsupported player action" });
+    }
+
+    const result = await sendServerCommand(server, i, command);
+    const snapshot = await collectJavaPlayerSnapshot(server, i, player).catch(() => null);
+
+    res.json({
+      ok: true,
+      action,
+      player,
+      command: command.join(" "),
+      stdout: result.stdout || null,
+      snapshot,
+    });
+  } catch (error) {
+    res.status(javaErrorStatus(error)).json({ error: String(error.message || error) });
+  }
+});
+
+app.get("/api/game/block-inventory", async (req, res) => {
+  try {
+    const server = resolveServer(req.query);
+    const x = normalizeBlockCoordinate(req.query?.x, "x");
+    const y = normalizeBlockCoordinate(req.query?.y, "y");
+    const z = normalizeBlockCoordinate(req.query?.z, "z");
+    const { i } = await ensureJavaControlServer(server);
+
+    const result = await sendServerCommand(server, i, ["data", "get", "block", x, y, z, "Items"]);
+
+    res.json({
+      ok: true,
+      x,
+      y,
+      z,
+      items: parseItemObjects(result.stdout),
+      raw: result.stdout || null,
+    });
+  } catch (error) {
+    res.status(javaErrorStatus(error)).json({ error: String(error.message || error) });
+  }
+});
+
+app.post("/api/game/happy-ghast-speed", async (req, res) => {
+  try {
+    const server = resolveServer(req.body);
+    const speed = Number.parseFloat(req.body?.speed);
+    if (!Number.isFinite(speed) || speed < 0 || speed > 10) {
+      return res.status(400).json({ error: "speed must be a number between 0 and 10" });
+    }
+
+    const { i } = await ensureJavaControlServer(server);
+    const speedText = String(speed);
+    const command = ["execute", "as", "@e[type=minecraft:happy_ghast]", "run", "attribute", "@s", "minecraft:flying_speed", "base", "set", speedText];
+    const result = await sendServerCommand(server, i, command);
+
+    res.json({
+      ok: true,
+      speed,
+      command: command.join(" "),
+      stdout: result.stdout || null,
+      note: "Applied to loaded Happy Ghasts. This is version-sensitive in vanilla Minecraft.",
+    });
+  } catch (error) {
+    res.status(javaErrorStatus(error)).json({ error: String(error.message || error) });
   }
 });
 

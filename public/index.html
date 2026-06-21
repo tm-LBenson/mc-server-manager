@@ -765,6 +765,7 @@
       <nav class="tabs" role="tablist" aria-label="Server workspace">
         <button class="tab-button" type="button" role="tab" aria-selected="true" data-tab="overview">Overview</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="players">Players</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="control">Control Center</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="operations">Operations</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="logs">Logs</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="settings">Settings</button>
@@ -829,6 +830,155 @@
             </div>
             <div id="whitelistMessage" class="status-line" role="status" aria-live="polite"></div>
             <div id="whitelistTable" class="table-wrap"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel hidden" data-tab-panel="control">
+        <section class="panel" aria-labelledby="controlHeading">
+          <div class="panel-header">
+            <h2 id="controlHeading">Player State</h2>
+            <button id="gameRefreshPlayersBtn" class="btn subtle" type="button" data-java-control>Refresh Players</button>
+          </div>
+          <div class="panel-body">
+            <div id="gameUnavailable" class="empty hidden">Control Center tools are available for Java servers. Bedrock controls are disabled for now.</div>
+            <div class="form-row">
+              <div class="field grow">
+                <label for="gamePlayerSelect">Online Player</label>
+                <select id="gamePlayerSelect" data-java-control>
+                  <option value="">No players loaded</option>
+                </select>
+              </div>
+              <button id="gameLoadPlayerBtn" class="btn primary" type="button" data-java-control>Inspect</button>
+            </div>
+            <div id="gameMessage" class="status-line" role="status" aria-live="polite"></div>
+            <section class="metrics" aria-label="Selected player state">
+              <div class="metric">
+                <div class="metric-label">Location</div>
+                <div id="gameLocationMetric" class="metric-value">-</div>
+                <div id="gameDimensionMetric" class="metric-detail">-</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Health</div>
+                <div id="gameHealthMetric" class="metric-value">-</div>
+                <div id="gameFoodMetric" class="metric-detail">-</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Inventory</div>
+                <div id="gameInventoryMetric" class="metric-value">-</div>
+                <div class="metric-detail">Parsed from Java entity data</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Selected</div>
+                <div id="gameSelectedPlayerMetric" class="metric-value">-</div>
+                <div class="metric-detail">Java only</div>
+              </div>
+            </section>
+            <div id="gameInventoryTable" class="table-wrap"></div>
+            <details>
+              <summary>Raw player data</summary>
+              <pre id="gamePlayerRaw"></pre>
+            </details>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="playerActionsHeading">
+          <div class="panel-header">
+            <h2 id="playerActionsHeading">Player Actions</h2>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <button id="gameTeleportHomeBtn" class="btn primary" type="button" data-java-control>Teleport Home</button>
+              <button id="gameHealBtn" class="btn" type="button" data-java-control>Heal</button>
+              <button id="gameFeedBtn" class="btn" type="button" data-java-control>Feed</button>
+              <button id="gameClearInventoryBtn" class="btn danger" type="button" data-java-control>Clear Inventory</button>
+            </div>
+            <div class="form-row">
+              <div class="field">
+                <label for="gameModeSelect">Game Mode</label>
+                <select id="gameModeSelect" data-java-control>
+                  <option value="survival">Survival</option>
+                  <option value="creative">Creative</option>
+                  <option value="adventure">Adventure</option>
+                  <option value="spectator">Spectator</option>
+                </select>
+              </div>
+              <button id="gameSetModeBtn" class="btn" type="button" data-java-control>Set Mode</button>
+              <div class="field grow">
+                <label for="gameItemInput">Give Item</label>
+                <input id="gameItemInput" autocomplete="off" value="minecraft:ender_pearl" data-java-control />
+              </div>
+              <div class="field" style="width: 120px">
+                <label for="gameItemCountInput">Count</label>
+                <input id="gameItemCountInput" inputmode="numeric" value="1" data-java-control />
+              </div>
+              <button id="gameGiveItemBtn" class="btn" type="button" data-java-control>Give</button>
+            </div>
+            <div class="form-row">
+              <div class="field" style="width: 130px">
+                <label for="gameTeleportXInput">X</label>
+                <input id="gameTeleportXInput" inputmode="decimal" placeholder="0" data-java-control />
+              </div>
+              <div class="field" style="width: 130px">
+                <label for="gameTeleportYInput">Y</label>
+                <input id="gameTeleportYInput" inputmode="decimal" placeholder="64" data-java-control />
+              </div>
+              <div class="field" style="width: 130px">
+                <label for="gameTeleportZInput">Z</label>
+                <input id="gameTeleportZInput" inputmode="decimal" placeholder="0" data-java-control />
+              </div>
+              <button id="gameTeleportCoordsBtn" class="btn" type="button" data-java-control>Teleport</button>
+              <div class="field grow">
+                <label for="gameTeleportTargetInput">To Player</label>
+                <input id="gameTeleportTargetInput" autocomplete="off" placeholder="Other player" data-java-control />
+              </div>
+              <button id="gameTeleportPlayerBtn" class="btn" type="button" data-java-control>Send</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="blockInventoryHeading">
+          <div class="panel-header">
+            <h2 id="blockInventoryHeading">Block Inventory</h2>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="field" style="width: 130px">
+                <label for="blockXInput">X</label>
+                <input id="blockXInput" inputmode="numeric" placeholder="0" data-java-control />
+              </div>
+              <div class="field" style="width: 130px">
+                <label for="blockYInput">Y</label>
+                <input id="blockYInput" inputmode="numeric" placeholder="64" data-java-control />
+              </div>
+              <div class="field" style="width: 130px">
+                <label for="blockZInput">Z</label>
+                <input id="blockZInput" inputmode="numeric" placeholder="0" data-java-control />
+              </div>
+              <button id="blockInventoryBtn" class="btn primary" type="button" data-java-control>Inspect Block</button>
+            </div>
+            <div id="blockInventoryMessage" class="status-line" role="status" aria-live="polite"></div>
+            <div id="blockInventoryTable" class="table-wrap"></div>
+            <details>
+              <summary>Raw block data</summary>
+              <pre id="blockInventoryRaw"></pre>
+            </details>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="mobToolsHeading">
+          <div class="panel-header">
+            <h2 id="mobToolsHeading">Mob Tools</h2>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="field grow">
+                <label for="happyGhastSpeedInput">Happy Ghast Flying Speed</label>
+                <input id="happyGhastSpeedInput" inputmode="decimal" value="0.2" data-java-control />
+              </div>
+              <button id="happyGhastSpeedBtn" class="btn primary" type="button" data-java-control>Apply</button>
+            </div>
+            <div id="mobToolsMessage" class="status-line" role="status" aria-live="polite"></div>
           </div>
         </section>
       </section>
@@ -1062,7 +1212,9 @@
       const state = {
         activeTarget: "",
         activeServerId: "",
+        activeTab: "overview",
         editingServerId: "",
+        gamePlayers: [],
         servers: [],
         info: null,
         busy: new Set(),
@@ -1070,6 +1222,13 @@
 
       const el = {
         addPlayerBtn: document.getElementById("addPlayerBtn"),
+        blockInventoryBtn: document.getElementById("blockInventoryBtn"),
+        blockInventoryMessage: document.getElementById("blockInventoryMessage"),
+        blockInventoryRaw: document.getElementById("blockInventoryRaw"),
+        blockInventoryTable: document.getElementById("blockInventoryTable"),
+        blockXInput: document.getElementById("blockXInput"),
+        blockYInput: document.getElementById("blockYInput"),
+        blockZInput: document.getElementById("blockZInput"),
         containerSelect: document.getElementById("containerSelect"),
         containersWrap: document.getElementById("containersWrap"),
         confirmAcceptBtn: document.getElementById("confirmAcceptBtn"),
@@ -1084,6 +1243,36 @@
         disableWhitelistBtn: document.getElementById("disableWhitelistBtn"),
         editionPill: document.getElementById("editionPill"),
         enableWhitelistBtn: document.getElementById("enableWhitelistBtn"),
+        gameClearInventoryBtn: document.getElementById("gameClearInventoryBtn"),
+        gameDimensionMetric: document.getElementById("gameDimensionMetric"),
+        gameFeedBtn: document.getElementById("gameFeedBtn"),
+        gameGiveItemBtn: document.getElementById("gameGiveItemBtn"),
+        gameHealBtn: document.getElementById("gameHealBtn"),
+        gameHealthMetric: document.getElementById("gameHealthMetric"),
+        gameFoodMetric: document.getElementById("gameFoodMetric"),
+        gameInventoryMetric: document.getElementById("gameInventoryMetric"),
+        gameInventoryTable: document.getElementById("gameInventoryTable"),
+        gameItemCountInput: document.getElementById("gameItemCountInput"),
+        gameItemInput: document.getElementById("gameItemInput"),
+        gameLoadPlayerBtn: document.getElementById("gameLoadPlayerBtn"),
+        gameLocationMetric: document.getElementById("gameLocationMetric"),
+        gameMessage: document.getElementById("gameMessage"),
+        gameModeSelect: document.getElementById("gameModeSelect"),
+        gamePlayerRaw: document.getElementById("gamePlayerRaw"),
+        gamePlayerSelect: document.getElementById("gamePlayerSelect"),
+        gameRefreshPlayersBtn: document.getElementById("gameRefreshPlayersBtn"),
+        gameSelectedPlayerMetric: document.getElementById("gameSelectedPlayerMetric"),
+        gameSetModeBtn: document.getElementById("gameSetModeBtn"),
+        gameTeleportCoordsBtn: document.getElementById("gameTeleportCoordsBtn"),
+        gameTeleportHomeBtn: document.getElementById("gameTeleportHomeBtn"),
+        gameTeleportPlayerBtn: document.getElementById("gameTeleportPlayerBtn"),
+        gameTeleportTargetInput: document.getElementById("gameTeleportTargetInput"),
+        gameTeleportXInput: document.getElementById("gameTeleportXInput"),
+        gameTeleportYInput: document.getElementById("gameTeleportYInput"),
+        gameTeleportZInput: document.getElementById("gameTeleportZInput"),
+        gameUnavailable: document.getElementById("gameUnavailable"),
+        happyGhastSpeedBtn: document.getElementById("happyGhastSpeedBtn"),
+        happyGhastSpeedInput: document.getElementById("happyGhastSpeedInput"),
         imageMetric: document.getElementById("imageMetric"),
         hostPill: document.getElementById("hostPill"),
         loadContainersBtn: document.getElementById("loadContainersBtn"),
@@ -1141,6 +1330,7 @@
         uptimeMetric: document.getElementById("uptimeMetric"),
         unlockPlayerBtn: document.getElementById("unlockPlayerBtn"),
         useTargetBtn: document.getElementById("useTargetBtn"),
+        mobToolsMessage: document.getElementById("mobToolsMessage"),
         motdSummary: document.getElementById("motdSummary"),
         containerSummary: document.getElementById("containerSummary"),
         whitelistFileMetric: document.getElementById("whitelistFileMetric"),
@@ -1167,10 +1357,23 @@
         el.stopBtn,
         el.unlockPlayerBtn,
         el.useTargetBtn,
+        el.blockInventoryBtn,
+        el.gameClearInventoryBtn,
+        el.gameFeedBtn,
+        el.gameGiveItemBtn,
+        el.gameHealBtn,
+        el.gameLoadPlayerBtn,
+        el.gameRefreshPlayersBtn,
+        el.gameSetModeBtn,
+        el.gameTeleportCoordsBtn,
+        el.gameTeleportHomeBtn,
+        el.gameTeleportPlayerBtn,
+        el.happyGhastSpeedBtn,
         ...document.querySelectorAll("[data-difficulty]"),
         ...document.querySelectorAll("[data-hardcore]"),
         ...document.querySelectorAll("[data-pvp]"),
       ];
+      const javaControls = [...document.querySelectorAll("[data-java-control]")];
 
       function setText(node, value) {
         node.textContent = value == null || value === "" ? "-" : String(value);
@@ -1233,6 +1436,18 @@
         return path + targetQuery();
       }
 
+      function endpointWithTargetParams(path, extras = {}) {
+        const serverId = selectedServerId();
+        const name = targetName();
+        const params = new URLSearchParams();
+        if (serverId) params.set("serverId", serverId);
+        if (name) params.set("name", name);
+        Object.entries(extras).forEach(([key, value]) => {
+          if (value != null && value !== "") params.set(key, value);
+        });
+        return params.toString() ? `${path}?${params.toString()}` : path;
+      }
+
       async function api(url, options = {}, timeoutMs = 22000) {
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -1293,8 +1508,12 @@
 
       function syncBusy() {
         const blocking = [...state.busy].some((key) => !["containers", "logs", "refresh"].includes(key));
+        const javaReady = state.info?.edition === "java" && Boolean(state.info?.running);
         actionButtons.forEach((button) => {
           button.disabled = blocking;
+        });
+        javaControls.forEach((control) => {
+          control.disabled = blocking || !javaReady;
         });
         el.loadContainersBtn.disabled = blocking || state.busy.has("containers");
         el.logsBtn.disabled = blocking || state.busy.has("logs");
@@ -1355,12 +1574,16 @@
       }
 
       function showTab(tabName) {
+        state.activeTab = tabName;
         document.querySelectorAll("[data-tab]").forEach((button) => {
           button.setAttribute("aria-selected", button.dataset.tab === tabName ? "true" : "false");
         });
         document.querySelectorAll("[data-tab-panel]").forEach((panel) => {
           panel.classList.toggle("hidden", panel.dataset.tabPanel !== tabName);
         });
+        if (tabName === "control") {
+          loadGameStatus({ inspectSelected: true });
+        }
       }
 
       function getCurrentServer() {
@@ -1571,6 +1794,229 @@
         el.whitelistTable.replaceChildren(table);
       }
 
+      function formatPosition(position) {
+        if (!position) return "-";
+        return [position.x, position.y, position.z].map((value) => Number(value).toFixed(1)).join(", ");
+      }
+
+      function selectedGamePlayer() {
+        return el.gamePlayerSelect.value || "";
+      }
+
+      function renderItemTable(target, items = [], emptyText = "No items found") {
+        if (!items.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = emptyText;
+          target.replaceChildren(empty);
+          return;
+        }
+
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const tbody = document.createElement("tbody");
+        const header = document.createElement("tr");
+        ["Slot", "Item", "Count"].forEach((text) => {
+          const th = document.createElement("th");
+          th.textContent = text;
+          header.append(th);
+        });
+        thead.append(header);
+
+        items.forEach((item) => {
+          const row = document.createElement("tr");
+          [item.slot ?? "-", item.id, item.count ?? 1].forEach((text) => {
+            const td = document.createElement("td");
+            td.textContent = text;
+            row.append(td);
+          });
+          tbody.append(row);
+        });
+
+        table.append(thead, tbody);
+        target.replaceChildren(table);
+      }
+
+      function renderGameAvailability(info = state.info) {
+        const javaReady = info?.edition === "java" && Boolean(info?.running);
+        const message =
+          info?.edition === "bedrock"
+            ? "Bedrock detected. This Java Control Center is disabled for now."
+            : info?.running
+              ? "Control Center tools are available for Java servers."
+              : "Start the Java server before using Control Center tools.";
+
+        el.gameUnavailable.textContent = message;
+        el.gameUnavailable.classList.toggle("hidden", javaReady);
+        syncBusy();
+      }
+
+      function renderGamePlayers(players = []) {
+        const previous = selectedGamePlayer();
+        state.gamePlayers = players;
+        el.gamePlayerSelect.replaceChildren();
+
+        if (!players.length) {
+          el.gamePlayerSelect.add(new Option("No online players", ""));
+          setText(el.gameSelectedPlayerMetric, "-");
+          return "";
+        }
+
+        players.forEach((player) => {
+          el.gamePlayerSelect.add(new Option(player, player));
+        });
+
+        el.gamePlayerSelect.value = players.includes(previous) ? previous : players[0];
+        setText(el.gameSelectedPlayerMetric, selectedGamePlayer());
+        return selectedGamePlayer();
+      }
+
+      function clearGameSnapshot() {
+        setText(el.gameLocationMetric, "-");
+        setText(el.gameDimensionMetric, "-");
+        setText(el.gameHealthMetric, "-");
+        setText(el.gameFoodMetric, "-");
+        setText(el.gameInventoryMetric, "-");
+        setText(el.gameSelectedPlayerMetric, selectedGamePlayer() || "-");
+        el.gamePlayerRaw.textContent = "";
+        renderItemTable(el.gameInventoryTable, [], "No player inventory loaded");
+      }
+
+      function renderPlayerSnapshot(snapshot) {
+        if (!snapshot) {
+          clearGameSnapshot();
+          return;
+        }
+
+        setText(el.gameSelectedPlayerMetric, snapshot.player);
+        setText(el.gameLocationMetric, formatPosition(snapshot.position));
+        setText(el.gameDimensionMetric, snapshot.dimension || "-");
+        setText(el.gameHealthMetric, snapshot.health == null ? "-" : `${snapshot.health}`);
+        setText(el.gameFoodMetric, snapshot.food == null ? "-" : `Food ${snapshot.food}`);
+        setText(el.gameInventoryMetric, `${(snapshot.inventory || []).length} item stack${(snapshot.inventory || []).length === 1 ? "" : "s"}`);
+        renderItemTable(el.gameInventoryTable, snapshot.inventory || [], "Inventory is empty or unavailable");
+        el.gamePlayerRaw.textContent = JSON.stringify(snapshot.raw || {}, null, 2);
+      }
+
+      async function loadGameStatus({ inspectSelected = false } = {}) {
+        if (state.info?.edition !== "java") {
+          renderGameAvailability(state.info);
+          renderGamePlayers([]);
+          clearGameSnapshot();
+          return null;
+        }
+
+        return withBusy("game-status", async () => {
+          setMessage(el.gameMessage, "Loading players...");
+          try {
+            const data = await api(endpointWithTarget("/api/game/status"));
+            renderGameAvailability(state.info);
+            const player = renderGamePlayers(data.players || []);
+            setMessage(el.gameMessage, `${(data.players || []).length} online player${(data.players || []).length === 1 ? "" : "s"}`, "success");
+            if (inspectSelected && player) await loadPlayerDetails();
+            return data;
+          } catch (error) {
+            renderGamePlayers([]);
+            clearGameSnapshot();
+            setMessage(el.gameMessage, error.message, "error");
+            return null;
+          }
+        });
+      }
+
+      async function loadPlayerDetails() {
+        const player = selectedGamePlayer();
+        if (!player) {
+          setMessage(el.gameMessage, "Choose an online player", "error");
+          return null;
+        }
+
+        return withBusy("game-player", async () => {
+          setMessage(el.gameMessage, `Inspecting ${player}...`);
+          try {
+            const data = await api(endpointWithTargetParams("/api/game/player", { player }));
+            renderPlayerSnapshot(data);
+            setMessage(el.gameMessage, `${player} loaded`, "success");
+            return data;
+          } catch (error) {
+            setMessage(el.gameMessage, error.message, "error");
+            return null;
+          }
+        });
+      }
+
+      async function runPlayerAction(action, payload = {}, options = {}) {
+        const player = selectedGamePlayer();
+        if (!player) {
+          setMessage(el.gameMessage, "Choose an online player", "error");
+          return null;
+        }
+
+        if (options.confirm) {
+          const confirmed = await confirmAction(options.confirm);
+          if (!confirmed) return null;
+        }
+
+        return withBusy(`game-${action}`, async () => {
+          setMessage(el.gameMessage, "Running player action...");
+          try {
+            const data = await post("/api/game/player/action", {
+              ...currentRequestTarget(),
+              player,
+              action,
+              ...payload,
+            });
+            if (data.snapshot) renderPlayerSnapshot(data.snapshot);
+            setMessage(el.gameMessage, data.stdout || `${action} complete`, "success");
+            return data;
+          } catch (error) {
+            setMessage(el.gameMessage, error.message, "error");
+            return null;
+          }
+        });
+      }
+
+      async function inspectBlockInventory() {
+        return withBusy("block-inventory", async () => {
+          setMessage(el.blockInventoryMessage, "Inspecting block...");
+          try {
+            const data = await api(
+              endpointWithTargetParams("/api/game/block-inventory", {
+                x: el.blockXInput.value,
+                y: el.blockYInput.value,
+                z: el.blockZInput.value,
+              }),
+            );
+            renderItemTable(el.blockInventoryTable, data.items || [], "No inventory items found at that block");
+            el.blockInventoryRaw.textContent = data.raw || "";
+            setMessage(el.blockInventoryMessage, `${(data.items || []).length} item stack${(data.items || []).length === 1 ? "" : "s"} found`, "success");
+            return data;
+          } catch (error) {
+            renderItemTable(el.blockInventoryTable, [], "No block inventory loaded");
+            el.blockInventoryRaw.textContent = "";
+            setMessage(el.blockInventoryMessage, error.message, "error");
+            return null;
+          }
+        });
+      }
+
+      async function setHappyGhastSpeed() {
+        return withBusy("happy-ghast-speed", async () => {
+          setMessage(el.mobToolsMessage, "Applying Happy Ghast speed...");
+          try {
+            const data = await post("/api/game/happy-ghast-speed", {
+              ...currentRequestTarget(),
+              speed: el.happyGhastSpeedInput.value,
+            });
+            setMessage(el.mobToolsMessage, data.note || "Happy Ghast speed applied", "success");
+            return data;
+          } catch (error) {
+            setMessage(el.mobToolsMessage, error.message, "error");
+            return null;
+          }
+        });
+      }
+
       function selectContainer(container) {
         if (!container) return;
         el.targetInput.value = container.name;
@@ -1651,6 +2097,8 @@
         renderStatus(info);
         renderDetails(info);
         renderProperties(info);
+        renderGameAvailability(info);
+        if (state.activeTab === "control") loadGameStatus({ inspectSelected: false });
         loadWhitelist();
         return info;
       }
@@ -2104,6 +2552,47 @@
       el.addPlayerBtn.addEventListener("click", () => changePlayer("add"));
       el.unlockPlayerBtn.addEventListener("click", unlockPlayer);
       el.removePlayerBtn.addEventListener("click", () => changePlayer("remove"));
+      el.gameRefreshPlayersBtn.addEventListener("click", () => loadGameStatus({ inspectSelected: true }));
+      el.gameLoadPlayerBtn.addEventListener("click", loadPlayerDetails);
+      el.gamePlayerSelect.addEventListener("change", loadPlayerDetails);
+      el.gameTeleportHomeBtn.addEventListener("click", () => runPlayerAction("teleport-home"));
+      el.gameHealBtn.addEventListener("click", () => runPlayerAction("heal"));
+      el.gameFeedBtn.addEventListener("click", () => runPlayerAction("feed"));
+      el.gameClearInventoryBtn.addEventListener("click", () =>
+        runPlayerAction(
+          "clear",
+          {},
+          {
+            confirm: {
+              title: "Clear inventory",
+              message: `Clear ${selectedGamePlayer() || "this player"}'s inventory?`,
+              confirmText: "Clear",
+              danger: true,
+            },
+          },
+        ),
+      );
+      el.gameSetModeBtn.addEventListener("click", () => runPlayerAction("gamemode", { mode: el.gameModeSelect.value }));
+      el.gameGiveItemBtn.addEventListener("click", () =>
+        runPlayerAction("give", {
+          item: el.gameItemInput.value,
+          count: el.gameItemCountInput.value,
+        }),
+      );
+      el.gameTeleportCoordsBtn.addEventListener("click", () =>
+        runPlayerAction("teleport-coords", {
+          x: el.gameTeleportXInput.value,
+          y: el.gameTeleportYInput.value,
+          z: el.gameTeleportZInput.value,
+        }),
+      );
+      el.gameTeleportPlayerBtn.addEventListener("click", () =>
+        runPlayerAction("teleport-player", {
+          targetPlayer: el.gameTeleportTargetInput.value,
+        }),
+      );
+      el.blockInventoryBtn.addEventListener("click", inspectBlockInventory);
+      el.happyGhastSpeedBtn.addEventListener("click", setHappyGhastSpeed);
       el.logsBtn.addEventListener("click", showLogs);
       el.logLines.addEventListener("keydown", (event) => {
         if (event.key === "Enter") showLogs();
