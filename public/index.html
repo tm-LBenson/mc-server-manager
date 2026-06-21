@@ -1314,6 +1314,7 @@
             <select id="deathDropsModeSelect" data-java-control>
               <option value="tighten">Tighten item drops</option>
               <option value="keep">Keep inventory</option>
+              <option value="drop">Drop at death spot</option>
               <option value="chest">Death chest</option>
             </select>
           </div>
@@ -2567,7 +2568,9 @@
           message:
             payload.mode === "chest"
               ? "Death chest mode turns keepInventory on while enabled, creates chests from the last inventory snapshot, then clears the player after respawn."
-              : "Save death drop handling for this Java server?",
+              : payload.mode === "drop"
+                ? "Drop-at-spot mode turns keepInventory on while enabled, summons the saved inventory at the death spot with zero motion, then clears the player after respawn."
+                : "Save death drop handling for this Java server?",
           confirmText: "Save",
         });
         if (!confirmed) return null;

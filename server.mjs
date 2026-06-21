@@ -45,7 +45,7 @@ const DEFAULT_DEATH_DROPS = {
 };
 
 const normalizeDeathDropsConfig = (value = {}) => {
-  const mode = ["tighten", "keep", "chest"].includes(value.mode) ? value.mode : DEFAULT_DEATH_DROPS.mode;
+  const mode = ["tighten", "keep", "drop", "chest"].includes(value.mode) ? value.mode : DEFAULT_DEATH_DROPS.mode;
 
   return {
     enabled: value.enabled === true || value.enabled === "true",
@@ -722,7 +722,7 @@ const readJavaGameRule = async (server, i, rule) => {
 
 const applyDeathDropGameRules = async (server, i, config) => {
   if (!config.enabled) return null;
-  const keepInventory = config.mode === "keep" || config.mode === "chest";
+  const keepInventory = config.mode === "keep" || config.mode === "drop" || config.mode === "chest";
   await sendServerCommand(server, i, ["gamerule", "keepInventory", keepInventory ? "true" : "false"]);
   return keepInventory;
 };
@@ -831,9 +831,26 @@ const chestItemNbt = (item, slot) => {
   const raw = String(item.raw || "").trim();
   if (raw.startsWith("{") && raw.endsWith("}")) {
     const fields = splitTopLevelNbtFields(raw.slice(1, -1)).filter((field) => !/^(?:Slot|slot)\s*:/i.test(field));
-    return `{Slot:${slot}b,${fields.join(",")}}`;
+    if (fields.length) return `{Slot:${slot}b,${fields.join(",")}}`;
   }
   return `{Slot:${slot}b,id:"${item.id}",count:${Number.parseInt(item.count || "1", 10) || 1}}`;
+};
+
+const itemStackNbt = (item) => {
+  const raw = String(item.raw || "").trim();
+  if (raw.startsWith("{") && raw.endsWith("}")) {
+    const fields = splitTopLevelNbtFields(raw.slice(1, -1)).filter((field) => !/^(?:Slot|slot)\s*:/i.test(field));
+    if (fields.length) return `{${fields.join(",")}}`;
+  }
+  return `{id:"${item.id}",count:${Number.parseInt(item.count || "1", 10) || 1}}`;
+};
+
+const chunkItems = (items, size) => {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 };
 
 const placeChestBlock = async (server, i, pos, used) => {
@@ -882,14 +899,14 @@ const createDeathChests = async (server, i, player, snapshot) => {
   const pos = deathPosition(snapshot);
   if (!pos) throw new Error("No recent death position was available.");
 
-  const inventory = (snapshot.inventory || []).filter((item) => item?.id).slice(0, 54);
+  const inventory = (snapshot.inventory || []).filter((item) => item?.id);
   if (!inventory.length) {
     return { position: pos, chests: [], itemStacks: 0, cleared: false, note: "No inventory snapshot was available." };
   }
 
   const used = new Set();
   const chests = [];
-  const chunks = [inventory.slice(0, 27), inventory.slice(27, 54)].filter((chunk) => chunk.length);
+  const chunks = chunkItems(inventory, 27);
 
   for (const chunk of chunks) {
     const chest = await placeChestBlock(server, i, pos, used);
@@ -937,6 +954,73 @@ const createDeathChests = async (server, i, player, snapshot) => {
   };
 };
 
+const dropInventoryAtDeathSpot = async (server, i, player, snapshot) => {
+  const pos = deathPosition(snapshot);
+  if (!pos) throw new Error("No recent death position was available.");
+
+  const inventory = (snapshot.inventory || []).filter((item) => item?.id);
+  if (!inventory.length) {
+    return { position: pos, droppedStacks: 0, cleared: false, note: "No inventory snapshot was available." };
+  }
+
+  const x = String(pos.x + 0.5);
+  const y = String(pos.y + 0.25);
+  const z = String(pos.z + 0.5);
+  const motion = `{Motion:[${nbtDouble(0)},${nbtDouble(0)},${nbtDouble(0)}],PickupDelay:20s}`;
+
+  for (const item of inventory) {
+    await sendServerCommand(server, i, [
+      "execute",
+      "in",
+      pos.dimension,
+      "run",
+      "summon",
+      "minecraft:item",
+      x,
+      y,
+      z,
+      `{Item:${itemStackNbt(item)},${motion.slice(1)}`,
+    ]);
+  }
+
+  await sendServerCommand(server, i, [
+    "tellraw",
+    player,
+    JSON.stringify({
+      text: `Items dropped at ${pos.x}, ${pos.y}, ${pos.z}`,
+      color: "gold",
+    }),
+  ]).catch(() => null);
+
+  await sleep(1500);
+  const clearResult = await sendServerCommand(server, i, ["clear", player]).catch((error) => ({ stdout: "", error: String(error.message || error) }));
+
+  return {
+    position: pos,
+    droppedStacks: inventory.length,
+    cleared: !clearResult.error,
+    note: clearResult.error || null,
+  };
+};
+
+const deathEventSnapshot = (config, previousSnapshot, currentSnapshot) => {
+  const base = previousSnapshot || currentSnapshot;
+  if (!base) return null;
+  if (!["drop", "chest"].includes(config.mode)) return base;
+
+  const currentInventory = Array.isArray(currentSnapshot?.inventory) && currentSnapshot.inventory.length ? currentSnapshot.inventory : null;
+  if (!currentInventory) return base;
+
+  return {
+    ...base,
+    inventory: currentInventory,
+    raw: {
+      ...(base.raw || {}),
+      inventory: currentSnapshot.raw?.inventory || base.raw?.inventory || "",
+    },
+  };
+};
+
 const handleDeathDropEvent = async (server, i, player, snapshot, config, state) => {
   const event = {
     player,
@@ -948,6 +1032,9 @@ const handleDeathDropEvent = async (server, i, player, snapshot, config, state) 
   try {
     if (config.mode === "tighten") {
       event.position = await tightenDeathDrops(server, i, snapshot, config);
+      event.ok = true;
+    } else if (config.mode === "drop") {
+      Object.assign(event, await dropInventoryAtDeathSpot(server, i, player, snapshot));
       event.ok = true;
     } else if (config.mode === "chest") {
       Object.assign(event, await createDeathChests(server, i, player, snapshot));
@@ -1000,7 +1087,7 @@ const monitorDeathDropsForServer = async (server) => {
       ]);
 
       if (previousScore != null && score > previousScore) {
-        await handleDeathDropEvent(server, i, player, previousSnapshot || snapshot, config, state);
+        await handleDeathDropEvent(server, i, player, deathEventSnapshot(config, previousSnapshot, snapshot), config, state);
       }
 
       state.deaths.set(player, score);
