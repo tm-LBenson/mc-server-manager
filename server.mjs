@@ -19,6 +19,7 @@ const CONFIG_PATH = process.env.MC_SERVERS_FILE || path.join(__dirname, "servers
 const DEFAULT_DOCKER_TIMEOUT_MS = Number.parseInt(process.env.DOCKER_TIMEOUT_MS || "20000", 10);
 const QUICK_DOCKER_TIMEOUT_MS = Number.parseInt(process.env.DOCKER_QUICK_TIMEOUT_MS || "6000", 10);
 const CHEST_SCAN_TIMEOUT_MS = Number.parseInt(process.env.CHEST_SCAN_TIMEOUT_MS || "120000", 10);
+const DEATH_DROP_POLL_MS = Number.parseInt(process.env.DEATH_DROP_POLL_MS || "2000", 10);
 const SSH_CONNECT_TIMEOUT_SECONDS = Number.parseInt(process.env.SSH_CONNECT_TIMEOUT_SECONDS || "10", 10);
 const SSH_STRICT_HOST_KEY_CHECKING = process.env.SSH_STRICT_HOST_KEY_CHECKING || "accept-new";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "techtavern";
@@ -28,6 +29,32 @@ const AUTH_TOKEN = randomBytes(32).toString("hex");
 const normalizeTimeout = (value, fallback) => (Number.isFinite(value) && value > 0 ? value : fallback);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const boundedNumber = (value, fallback, min, max) => {
+  const number = Number.parseFloat(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+};
+
+const DEFAULT_DEATH_DROPS = {
+  enabled: false,
+  mode: "tighten",
+  radius: 5,
+  horizontalMotion: 0,
+  verticalMotion: 0.05,
+};
+
+const normalizeDeathDropsConfig = (value = {}) => {
+  const mode = ["tighten", "keep", "chest"].includes(value.mode) ? value.mode : DEFAULT_DEATH_DROPS.mode;
+
+  return {
+    enabled: value.enabled === true || value.enabled === "true",
+    mode,
+    radius: Math.round(boundedNumber(value.radius, DEFAULT_DEATH_DROPS.radius, 1, 16)),
+    horizontalMotion: boundedNumber(value.horizontalMotion, DEFAULT_DEATH_DROPS.horizontalMotion, 0, 1),
+    verticalMotion: boundedNumber(value.verticalMotion, DEFAULT_DEATH_DROPS.verticalMotion, 0, 1),
+  };
+};
 
 const requestError = (message, status = 400) => {
   const error = new Error(message);
@@ -63,6 +90,7 @@ const normalizeServer = (server = {}, index = 0) => {
     label,
     type,
     container,
+    deathDrops: normalizeDeathDropsConfig(server.deathDrops),
   };
 
   if (type === "ssh") {
@@ -83,6 +111,7 @@ const publicServer = (server) => ({
   label: server.label,
   type: server.type,
   container: server.container,
+  deathDrops: normalizeDeathDropsConfig(server.deathDrops),
   host: server.host || "",
   user: server.user || "",
   port: server.port || null,
@@ -615,6 +644,389 @@ const readJavaSpawn = async (server, i, player) => {
   return { x, y, z, dimension };
 };
 
+const deathDropMonitorKey = (server) => `${server.type}:${server.host || "local"}:${server.id}:${server.container}`;
+const deathDropMonitors = new Map();
+
+const getDeathDropMonitor = (server) => {
+  const key = deathDropMonitorKey(server);
+  if (!deathDropMonitors.has(key)) {
+    deathDropMonitors.set(key, {
+      deaths: new Map(),
+      snapshots: new Map(),
+      objectiveReady: false,
+      lastCheck: null,
+      lastEvent: null,
+      lastError: null,
+      trackedPlayers: [],
+    });
+  }
+  return deathDropMonitors.get(key);
+};
+
+const publicDeathDropMonitor = (server) => {
+  const state = deathDropMonitors.get(deathDropMonitorKey(server));
+  if (!state) {
+    return {
+      active: false,
+      lastCheck: null,
+      lastEvent: null,
+      lastError: null,
+      trackedPlayers: [],
+    };
+  }
+
+  return {
+    active: true,
+    lastCheck: state.lastCheck,
+    lastEvent: state.lastEvent,
+    lastError: state.lastError,
+    trackedPlayers: state.trackedPlayers || [],
+  };
+};
+
+const parseDeathScore = (stdout = "") => {
+  const text = String(stdout || "");
+  const match = text.match(/\bhas\s+(-?\d+)\b/i);
+  if (!match) return 0;
+  const score = Number.parseInt(match[1], 10);
+  return Number.isFinite(score) ? score : 0;
+};
+
+const readJavaDeathScore = async (server, i, player) => {
+  try {
+    const result = await sendServerCommand(server, i, ["scoreboard", "players", "get", player, "mcsm_deaths"]);
+    return parseDeathScore(result.stdout);
+  } catch (error) {
+    const message = String(error.message || error);
+    if (/has no score|can't get value|cannot get value/i.test(message)) return 0;
+    throw error;
+  }
+};
+
+const ensureDeathScoreObjective = async (server, i, state) => {
+  if (state.objectiveReady) return;
+  try {
+    await sendServerCommand(server, i, ["scoreboard", "objectives", "add", "mcsm_deaths", "deathCount"]);
+  } catch (error) {
+    const message = String(error.message || error);
+    if (!/already exists|exists already/i.test(message)) throw error;
+  }
+  state.objectiveReady = true;
+};
+
+const readJavaGameRule = async (server, i, rule) => {
+  const result = await sendServerCommand(server, i, ["gamerule", rule]);
+  const match = String(result.stdout || "").match(/\b(true|false)\b/i);
+  return match ? match[1].toLowerCase() === "true" : null;
+};
+
+const applyDeathDropGameRules = async (server, i, config) => {
+  if (!config.enabled) return null;
+  const keepInventory = config.mode === "keep" || config.mode === "chest";
+  await sendServerCommand(server, i, ["gamerule", "keepInventory", keepInventory ? "true" : "false"]);
+  return keepInventory;
+};
+
+const commandNumber = (value, fallback = 0) => {
+  const number = Number.parseFloat(value);
+  if (!Number.isFinite(number)) return String(fallback);
+  return String(Number(number.toFixed(4)));
+};
+
+const nbtDouble = (value) => `${commandNumber(value)}d`;
+
+const deathPosition = (snapshot) => {
+  if (!snapshot?.position) return null;
+  return {
+    x: Math.floor(snapshot.position.x),
+    y: Math.floor(snapshot.position.y),
+    z: Math.floor(snapshot.position.z),
+    dimension: snapshot.dimension || "minecraft:overworld",
+  };
+};
+
+const tightenDeathDrops = async (server, i, snapshot, config) => {
+  const pos = deathPosition(snapshot);
+  if (!pos) throw new Error("No recent death position was available.");
+
+  const selector = `@e[type=minecraft:item,distance=..${config.radius}]`;
+  const motion = `{Motion:[${nbtDouble(config.horizontalMotion)},${nbtDouble(config.verticalMotion)},${nbtDouble(config.horizontalMotion)}]}`;
+  const command = [
+    "execute",
+    "in",
+    pos.dimension,
+    "positioned",
+    String(pos.x),
+    String(pos.y),
+    String(pos.z),
+    "as",
+    selector,
+    "run",
+    "data",
+    "merge",
+    "entity",
+    "@s",
+    motion,
+  ];
+
+  for (const delay of [0, 300, 900]) {
+    if (delay) await sleep(delay);
+    await sendServerCommand(server, i, command).catch(() => null);
+  }
+
+  return pos;
+};
+
+const splitTopLevelNbtFields = (value = "") => {
+  const fields = [];
+  let depth = 0;
+  let start = 0;
+  let inString = false;
+  let quote = "";
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === quote) {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      inString = true;
+      quote = char;
+      continue;
+    }
+
+    if (char === "{" || char === "[") {
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}" || char === "]") {
+      depth -= 1;
+      continue;
+    }
+
+    if (char === "," && depth === 0) {
+      const field = value.slice(start, index).trim();
+      if (field) fields.push(field);
+      start = index + 1;
+    }
+  }
+
+  const field = value.slice(start).trim();
+  if (field) fields.push(field);
+  return fields;
+};
+
+const chestItemNbt = (item, slot) => {
+  const raw = String(item.raw || "").trim();
+  if (raw.startsWith("{") && raw.endsWith("}")) {
+    const fields = splitTopLevelNbtFields(raw.slice(1, -1)).filter((field) => !/^(?:Slot|slot)\s*:/i.test(field));
+    return `{Slot:${slot}b,${fields.join(",")}}`;
+  }
+  return `{Slot:${slot}b,id:"${item.id}",count:${Number.parseInt(item.count || "1", 10) || 1}}`;
+};
+
+const placeChestBlock = async (server, i, pos, used) => {
+  const offsets = [
+    [0, 0, 0],
+    [0, 1, 0],
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+    [1, 1, 0],
+    [-1, 1, 0],
+    [0, 1, 1],
+    [0, 1, -1],
+    [2, 0, 0],
+    [-2, 0, 0],
+    [0, 0, 2],
+    [0, 0, -2],
+  ];
+
+  for (const [dx, dy, dz] of offsets) {
+    const x = pos.x + dx;
+    const y = pos.y + dy;
+    const z = pos.z + dz;
+    const key = `${x},${y},${z}`;
+    if (used.has(key)) continue;
+
+    await sendServerCommand(server, i, ["execute", "in", pos.dimension, "run", "setblock", String(x), String(y), String(z), "minecraft:chest", "keep"]).catch(
+      () => null,
+    );
+
+    const check = await sendServerCommand(server, i, ["execute", "in", pos.dimension, "run", "data", "get", "block", String(x), String(y), String(z), "Items"]).catch(
+      () => null,
+    );
+
+    if (/block(?: entity)? data/i.test(String(check?.stdout || ""))) {
+      used.add(key);
+      return { x, y, z, dimension: pos.dimension };
+    }
+  }
+
+  return null;
+};
+
+const createDeathChests = async (server, i, player, snapshot) => {
+  const pos = deathPosition(snapshot);
+  if (!pos) throw new Error("No recent death position was available.");
+
+  const inventory = (snapshot.inventory || []).filter((item) => item?.id).slice(0, 54);
+  if (!inventory.length) {
+    return { position: pos, chests: [], itemStacks: 0, cleared: false, note: "No inventory snapshot was available." };
+  }
+
+  const used = new Set();
+  const chests = [];
+  const chunks = [inventory.slice(0, 27), inventory.slice(27, 54)].filter((chunk) => chunk.length);
+
+  for (const chunk of chunks) {
+    const chest = await placeChestBlock(server, i, pos, used);
+    if (!chest) throw new Error("Could not place a death chest near the death location without replacing a block.");
+
+    const itemsNbt = chunk.map((item, index) => chestItemNbt(item, index)).join(",");
+    await sendServerCommand(server, i, [
+      "execute",
+      "in",
+      chest.dimension,
+      "run",
+      "data",
+      "modify",
+      "block",
+      String(chest.x),
+      String(chest.y),
+      String(chest.z),
+      "Items",
+      "set",
+      "value",
+      `[${itemsNbt}]`,
+    ]);
+    chests.push(chest);
+  }
+
+  const firstChest = chests[0];
+  await sendServerCommand(server, i, [
+    "tellraw",
+    player,
+    JSON.stringify({
+      text: `Death chest created at ${firstChest.x}, ${firstChest.y}, ${firstChest.z}`,
+      color: "gold",
+    }),
+  ]).catch(() => null);
+
+  await sleep(1500);
+  const clearResult = await sendServerCommand(server, i, ["clear", player]).catch((error) => ({ stdout: "", error: String(error.message || error) }));
+
+  return {
+    position: pos,
+    chests,
+    itemStacks: inventory.length,
+    cleared: !clearResult.error,
+    note: clearResult.error || null,
+  };
+};
+
+const handleDeathDropEvent = async (server, i, player, snapshot, config, state) => {
+  const event = {
+    player,
+    mode: config.mode,
+    at: new Date().toISOString(),
+    ok: false,
+  };
+
+  try {
+    if (config.mode === "tighten") {
+      event.position = await tightenDeathDrops(server, i, snapshot, config);
+      event.ok = true;
+    } else if (config.mode === "chest") {
+      Object.assign(event, await createDeathChests(server, i, player, snapshot));
+      event.ok = true;
+    } else {
+      event.ok = true;
+      event.note = "keepInventory is enabled; no death-drop action was needed.";
+    }
+    state.lastError = null;
+  } catch (error) {
+    event.error = String(error.message || error);
+    state.lastError = event.error;
+  }
+
+  state.lastEvent = event;
+};
+
+const monitorDeathDropsForServer = async (server) => {
+  const config = normalizeDeathDropsConfig(server.deathDrops);
+  if (!config.enabled) return;
+
+  const state = getDeathDropMonitor(server);
+  state.lastCheck = new Date().toISOString();
+
+  try {
+    const { i, edition } = await getContainerMeta(server);
+    if (edition !== "java" || !i.State?.Running) {
+      state.trackedPlayers = [];
+      state.lastError = edition === "java" ? "Java server is not running." : "Death drops are Java-only.";
+      return;
+    }
+
+    await ensureDeathScoreObjective(server, i, state);
+    await applyDeathDropGameRules(server, i, config);
+    if (config.mode === "keep") {
+      state.lastError = null;
+      return;
+    }
+
+    const listResult = await sendServerCommand(server, i, ["list"]);
+    const players = parseOnlinePlayers(listResult.stdout).filter((player) => /^[A-Za-z0-9_]{1,16}$/.test(player));
+    state.trackedPlayers = players;
+
+    for (const player of players) {
+      const previousScore = state.deaths.get(player);
+      const previousSnapshot = state.snapshots.get(player);
+      const [score, snapshot] = await Promise.all([
+        readJavaDeathScore(server, i, player),
+        collectJavaPlayerSnapshot(server, i, player).catch(() => null),
+      ]);
+
+      if (previousScore != null && score > previousScore) {
+        await handleDeathDropEvent(server, i, player, previousSnapshot || snapshot, config, state);
+      }
+
+      state.deaths.set(player, score);
+      if (snapshot) state.snapshots.set(player, snapshot);
+    }
+
+    state.lastError = null;
+  } catch (error) {
+    state.lastError = String(error.message || error);
+  }
+};
+
+let deathDropMonitorRunning = false;
+
+const runDeathDropMonitors = async () => {
+  if (deathDropMonitorRunning) return;
+  deathDropMonitorRunning = true;
+  try {
+    for (const server of SERVERS) {
+      await monitorDeathDropsForServer(server);
+    }
+  } finally {
+    deathDropMonitorRunning = false;
+  }
+};
+
 const parseNearbyChestScan = (raw = "") => {
   const sections = String(raw || "").split("---MCSM-CHEST---").slice(1);
   return sections
@@ -960,6 +1372,7 @@ app.get("/api/info", async (req, res) => {
       envPvp: env.PVP ?? null,
       envHardcore: env.HARDCORE ?? null,
       envOverrideServerProperties: env.OVERRIDE_SERVER_PROPERTIES ?? null,
+      deathDrops: normalizeDeathDropsConfig(server.deathDrops),
       fileDifficulty: properties.difficulty || null,
       filePvp: properties.pvp || null,
       fileHardcore: properties.hardcore || null,
@@ -1372,6 +1785,73 @@ app.get("/api/game/nearby-chests", async (req, res) => {
   }
 });
 
+app.get("/api/game/death-drops", async (req, res) => {
+  try {
+    const server = resolveServer(req.query);
+    const config = normalizeDeathDropsConfig(server.deathDrops);
+    const response = {
+      ok: true,
+      config,
+      monitor: publicDeathDropMonitor(server),
+      available: false,
+      running: false,
+      edition: "unknown",
+      keepInventory: null,
+    };
+
+    const { i, edition } = await getContainerMeta(server);
+    response.edition = edition;
+    response.running = !!i.State?.Running;
+    response.available = edition === "java" && response.running;
+
+    if (response.available) {
+      response.keepInventory = await readJavaGameRule(server, i, "keepInventory").catch(() => null);
+    }
+
+    res.json(response);
+  } catch (error) {
+    res.status(javaErrorStatus(error)).json({ error: String(error.message || error) });
+  }
+});
+
+app.post("/api/game/death-drops", async (req, res) => {
+  try {
+    const server = resolveServer(req.body);
+    const managed = findServer(server.id);
+    if (!managed) return res.status(400).json({ error: "Save this target before enabling death drops." });
+
+    const config = normalizeDeathDropsConfig(req.body?.config || req.body || {});
+    managed.deathDrops = config;
+    server.deathDrops = config;
+    await saveServers();
+
+    let appliedKeepInventory = null;
+    let note = "Death drop settings saved.";
+    const { i, edition } = await getContainerMeta(server);
+    if (edition !== "java") {
+      return res.status(400).json({ error: "Death drops are currently available for Java servers only." });
+    }
+
+    if (i.State?.Running) {
+      await ensureDeathScoreObjective(server, i, getDeathDropMonitor(server));
+      appliedKeepInventory = await applyDeathDropGameRules(server, i, config);
+      note = appliedKeepInventory == null ? "Death drop settings saved." : `Death drop settings saved. keepInventory is ${appliedKeepInventory ? "enabled" : "disabled"}.`;
+    } else {
+      note = "Death drop settings saved. They will apply when the Java server is running.";
+    }
+
+    res.json({
+      ok: true,
+      config,
+      appliedKeepInventory,
+      note,
+      monitor: publicDeathDropMonitor(server),
+    });
+  } catch (error) {
+    res.status(javaErrorStatus(error)).json({ error: String(error.message || error) });
+  }
+});
+
 app.post("/api/game/happy-ghast-speed", async (req, res) => {
   try {
     const server = resolveServer(req.body);
@@ -1474,6 +1954,13 @@ app.get("/api/logs", async (req, res) => {
 // serve static UI
 app.use(express.static(path.join(__dirname, "public")));
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
+
+const deathDropTimer = setInterval(() => {
+  runDeathDropMonitors().catch((error) => {
+    console.warn(`Death drop monitor failed: ${String(error.message || error)}`);
+  });
+}, normalizeTimeout(DEATH_DROP_POLL_MS, 2000));
+deathDropTimer.unref?.();
 
 app.listen(PORT, () => {
   const server = findServer(ACTIVE_SERVER_ID) || SERVERS[0];

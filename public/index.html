@@ -383,6 +383,23 @@
         text-transform: uppercase;
       }
 
+      .toggle-line {
+        display: inline-flex;
+        min-height: 40px;
+        align-items: center;
+        gap: 9px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text);
+        padding: 8px 11px;
+        text-transform: none;
+      }
+
+      .toggle-line input {
+        width: auto;
+        min-height: 0;
+      }
+
       input,
       select,
       textarea {
@@ -851,6 +868,7 @@
               <button id="gameRefreshPlayersBtn" class="btn subtle" type="button" data-java-control>Refresh Players</button>
               <button id="openPlayerActionsBtn" class="btn" type="button" data-java-control>Actions</button>
               <button id="openBlockInventoryBtn" class="btn" type="button" data-java-control>Nearby Chests</button>
+              <button id="openDeathDropsBtn" class="btn" type="button" data-java-control>Death Drops</button>
               <button id="openMobToolsBtn" class="btn" type="button" data-java-control>Mob Tools</button>
             </div>
           </div>
@@ -1200,6 +1218,46 @@
       </div>
     </dialog>
 
+    <dialog id="deathDropsDialog" class="modal wide" aria-labelledby="deathDropsHeading">
+      <div class="modal-header">
+        <h2 id="deathDropsHeading">Death Drops</h2>
+        <button class="btn subtle" type="button" data-close-dialog="deathDropsDialog">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label class="toggle-line" for="deathDropsEnabledInput">
+            <input id="deathDropsEnabledInput" type="checkbox" data-java-control />
+            Enabled
+          </label>
+          <div class="field grow">
+            <label for="deathDropsModeSelect">Mode</label>
+            <select id="deathDropsModeSelect" data-java-control>
+              <option value="tighten">Tighten item drops</option>
+              <option value="keep">Keep inventory</option>
+              <option value="chest">Death chest</option>
+            </select>
+          </div>
+          <button id="deathDropsSaveBtn" class="btn primary" type="button" data-java-control>Save</button>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="deathDropsRadiusInput">Range</label>
+            <input id="deathDropsRadiusInput" inputmode="numeric" value="5" data-java-control />
+          </div>
+          <div class="field">
+            <label for="deathDropsHorizontalInput">Horizontal Motion</label>
+            <input id="deathDropsHorizontalInput" inputmode="decimal" value="0" data-java-control />
+          </div>
+          <div class="field">
+            <label for="deathDropsVerticalInput">Vertical Lift</label>
+            <input id="deathDropsVerticalInput" inputmode="decimal" value="0.05" data-java-control />
+          </div>
+        </div>
+        <div id="deathDropsMessage" class="status-line" role="status" aria-live="polite"></div>
+        <dl id="deathDropsStatus" class="details-grid"></dl>
+      </div>
+    </dialog>
+
     <dialog id="mobToolsDialog" class="modal wide" aria-labelledby="mobToolsHeading">
       <div class="modal-header">
         <h2 id="mobToolsHeading">Mob Tools</h2>
@@ -1243,6 +1301,15 @@
         confirmDialog: document.getElementById("confirmDialog"),
         confirmDialogMessage: document.getElementById("confirmDialogMessage"),
         confirmDialogTitle: document.getElementById("confirmDialogTitle"),
+        deathDropsDialog: document.getElementById("deathDropsDialog"),
+        deathDropsEnabledInput: document.getElementById("deathDropsEnabledInput"),
+        deathDropsHorizontalInput: document.getElementById("deathDropsHorizontalInput"),
+        deathDropsMessage: document.getElementById("deathDropsMessage"),
+        deathDropsModeSelect: document.getElementById("deathDropsModeSelect"),
+        deathDropsRadiusInput: document.getElementById("deathDropsRadiusInput"),
+        deathDropsSaveBtn: document.getElementById("deathDropsSaveBtn"),
+        deathDropsStatus: document.getElementById("deathDropsStatus"),
+        deathDropsVerticalInput: document.getElementById("deathDropsVerticalInput"),
         detailsList: document.getElementById("detailsList"),
         detailsRaw: document.getElementById("detailsRaw"),
         difficultyDetail: document.getElementById("difficultyDetail"),
@@ -1289,6 +1356,7 @@
         logoutBtn: document.getElementById("logoutBtn"),
         newServerBtn: document.getElementById("newServerBtn"),
         openBlockInventoryBtn: document.getElementById("openBlockInventoryBtn"),
+        openDeathDropsBtn: document.getElementById("openDeathDropsBtn"),
         openMobToolsBtn: document.getElementById("openMobToolsBtn"),
         openPlayerActionsBtn: document.getElementById("openPlayerActionsBtn"),
         operationMessage: document.getElementById("operationMessage"),
@@ -1371,6 +1439,7 @@
         el.unlockPlayerBtn,
         el.useTargetBtn,
         el.blockInventoryBtn,
+        el.deathDropsSaveBtn,
         el.gameClearInventoryBtn,
         el.gameFeedBtn,
         el.gameGiveItemBtn,
@@ -2071,6 +2140,96 @@
         });
       }
 
+      function deathDropsPayloadFromForm() {
+        return {
+          enabled: el.deathDropsEnabledInput.checked,
+          mode: el.deathDropsModeSelect.value,
+          radius: el.deathDropsRadiusInput.value,
+          horizontalMotion: el.deathDropsHorizontalInput.value,
+          verticalMotion: el.deathDropsVerticalInput.value,
+        };
+      }
+
+      function renderDeathDrops(data = {}) {
+        const config = data.config || state.info?.deathDrops || {};
+        el.deathDropsEnabledInput.checked = Boolean(config.enabled);
+        el.deathDropsModeSelect.value = config.mode || "tighten";
+        el.deathDropsRadiusInput.value = config.radius ?? 5;
+        el.deathDropsHorizontalInput.value = config.horizontalMotion ?? 0;
+        el.deathDropsVerticalInput.value = config.verticalMotion ?? 0.05;
+
+        const lastEvent = data.monitor?.lastEvent;
+        const rows = [
+          ["Available", data.available ? "Yes" : "No"],
+          ["keepInventory", data.keepInventory == null ? "-" : data.keepInventory ? "Enabled" : "Disabled"],
+          ["Tracked Players", (data.monitor?.trackedPlayers || []).join(", ") || "-"],
+          ["Last Check", data.monitor?.lastCheck || "-"],
+          ["Last Event", lastEvent ? `${lastEvent.player} - ${lastEvent.mode} - ${lastEvent.ok ? "ok" : "error"}` : "-"],
+          ["Last Error", data.monitor?.lastError || "-"],
+        ];
+
+        el.deathDropsStatus.replaceChildren();
+        rows.forEach(([label, value]) => {
+          const dt = document.createElement("dt");
+          const dd = document.createElement("dd");
+          dt.textContent = label;
+          dd.textContent = value || "-";
+          el.deathDropsStatus.append(dt, dd);
+        });
+      }
+
+      async function loadDeathDrops() {
+        if (state.info?.edition !== "java") {
+          renderDeathDrops({ config: state.info?.deathDrops || {} });
+          setMessage(el.deathDropsMessage, "Java server required", "error");
+          return null;
+        }
+
+        return withBusy("death-drops-load", async () => {
+          setMessage(el.deathDropsMessage, "Loading death drop settings...");
+          try {
+            const data = await api(endpointWithTarget("/api/game/death-drops"));
+            renderDeathDrops(data);
+            setMessage(el.deathDropsMessage, "Death drop settings loaded", "success");
+            return data;
+          } catch (error) {
+            setMessage(el.deathDropsMessage, error.message, "error");
+            return null;
+          }
+        });
+      }
+
+      async function saveDeathDrops() {
+        const payload = deathDropsPayloadFromForm();
+        const confirmed = await confirmAction({
+          title: "Save death drops",
+          message:
+            payload.mode === "chest"
+              ? "Death chest mode turns keepInventory on while enabled, creates chests from the last inventory snapshot, then clears the player after respawn."
+              : "Save death drop handling for this Java server?",
+          confirmText: "Save",
+        });
+        if (!confirmed) return null;
+
+        return withBusy("death-drops-save", async () => {
+          setMessage(el.deathDropsMessage, "Saving death drop settings...");
+          try {
+            const data = await post("/api/game/death-drops", {
+              ...currentRequestTarget(),
+              config: payload,
+            });
+            state.info = { ...(state.info || {}), deathDrops: data.config };
+            const refreshed = await api(endpointWithTarget("/api/game/death-drops")).catch(() => data);
+            renderDeathDrops(refreshed);
+            setMessage(el.deathDropsMessage, data.note || "Death drop settings saved", "success");
+            return data;
+          } catch (error) {
+            setMessage(el.deathDropsMessage, error.message, "error");
+            return null;
+          }
+        });
+      }
+
       async function setHappyGhastSpeed() {
         return withBusy("happy-ghast-speed", async () => {
           setMessage(el.mobToolsMessage, "Applying Happy Ghast speed...");
@@ -2168,6 +2327,7 @@
         renderStatus(info);
         renderDetails(info);
         renderProperties(info);
+        renderDeathDrops({ config: info.deathDrops || {} });
         renderGameAvailability(info);
         if (state.activeTab === "control") loadGameStatus({ inspectSelected: false });
         loadWhitelist();
@@ -2577,7 +2737,7 @@
       document.querySelectorAll("[data-close-dialog]").forEach((button) => {
         button.addEventListener("click", () => closeDialog(document.getElementById(button.dataset.closeDialog)));
       });
-      [el.playerActionsDialog, el.blockInventoryDialog, el.mobToolsDialog].forEach((dialog) => {
+      [el.playerActionsDialog, el.blockInventoryDialog, el.deathDropsDialog, el.mobToolsDialog].forEach((dialog) => {
         dialog.addEventListener("click", (event) => {
           if (event.target === dialog) closeDialog(dialog);
         });
@@ -2633,6 +2793,10 @@
       el.removePlayerBtn.addEventListener("click", () => changePlayer("remove"));
       el.openPlayerActionsBtn.addEventListener("click", () => openDialog(el.playerActionsDialog));
       el.openBlockInventoryBtn.addEventListener("click", () => openDialog(el.blockInventoryDialog));
+      el.openDeathDropsBtn.addEventListener("click", () => {
+        openDialog(el.deathDropsDialog);
+        loadDeathDrops();
+      });
       el.openMobToolsBtn.addEventListener("click", () => openDialog(el.mobToolsDialog));
       el.gameRefreshPlayersBtn.addEventListener("click", () => loadGameStatus({ inspectSelected: true }));
       el.gameLoadPlayerBtn.addEventListener("click", loadPlayerDetails);
@@ -2674,6 +2838,7 @@
         }),
       );
       el.blockInventoryBtn.addEventListener("click", inspectNearbyChests);
+      el.deathDropsSaveBtn.addEventListener("click", saveDeathDrops);
       el.happyGhastSpeedBtn.addEventListener("click", setHappyGhastSpeed);
       el.logsBtn.addEventListener("click", showLogs);
       el.logLines.addEventListener("keydown", (event) => {
