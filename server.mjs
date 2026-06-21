@@ -429,6 +429,24 @@ const sendServerCommandWhenReady = async (server, args, timeoutMs = 30000) => {
   throw lastError || new Error("server command timed out");
 };
 
+const withServerCommandWhenReady = async (server, work, timeoutMs = 45000) => {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const i = await inspect(server);
+      ensureRunning(i);
+      return await work(i);
+    } catch (error) {
+      lastError = error;
+      await sleep(1500);
+    }
+  }
+
+  throw lastError || new Error("server command timed out");
+};
+
 const assertServerProperty = (key) => {
   if (!/^[a-z0-9_.-]+$/i.test(key)) throw new Error(`invalid server property: ${key}`);
 };
@@ -773,6 +791,49 @@ const setKeepInventoryGameRule = async (server, i, enabled) => {
     rule: null,
     value: null,
     error: lastError ? String(lastError.message || lastError) : "No supported keepInventory gamerule name was accepted.",
+  };
+};
+
+const PVP_RULES = ["minecraft:pvp", "pvp"];
+
+const readPvpGameRule = async (server, i) => {
+  let lastError = null;
+  for (const rule of PVP_RULES) {
+    try {
+      const value = await readJavaGameRule(server, i, rule);
+      if (value !== null) return { rule, value };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  return {
+    rule: null,
+    value: null,
+    error: lastError ? String(lastError.message || lastError) : "No supported PVP gamerule name was accepted.",
+  };
+};
+
+const setPvpGameRule = async (server, i, enabled) => {
+  const value = enabled ? "true" : "false";
+  let lastError = null;
+
+  for (const rule of PVP_RULES) {
+    try {
+      await sendServerCommand(server, i, ["gamerule", rule, value]);
+      await sleep(150);
+      await sendServerCommand(server, i, ["gamerule", rule, value]);
+      const confirmed = await readJavaGameRule(server, i, rule);
+      if (confirmed === enabled) return { rule, value: confirmed };
+      lastError = new Error(`${rule} returned ${confirmed}`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  return {
+    rule: null,
+    value: null,
+    error: lastError ? String(lastError.message || lastError) : "No supported PVP gamerule name was accepted.",
   };
 };
 
@@ -1542,6 +1603,7 @@ app.get("/api/info", async (req, res) => {
     const env = envListToObject(i.Config?.Env || []);
     const edition = detectEdition(i.Config?.Image || "");
     const properties = await readServerProperties(server);
+    const livePvp = edition !== "unknown" && i.State?.Running ? await readPvpGameRule(server, i).catch((error) => ({ rule: null, value: null, error: String(error.message || error) })) : null;
     res.json({
       serverId: server.id,
       serverLabel: server.label,
@@ -1558,6 +1620,9 @@ app.get("/api/info", async (req, res) => {
       deathDrops: normalizeDeathDropsConfig(server.deathDrops),
       fileDifficulty: properties.difficulty || null,
       filePvp: properties.pvp || null,
+      livePvp: livePvp?.value ?? null,
+      livePvpRule: livePvp?.rule ?? null,
+      livePvpError: livePvp?.error ?? null,
       fileHardcore: properties.hardcore || null,
       motd: properties.motd || null,
       serverName: properties["server-name"] || null,
@@ -1642,18 +1707,33 @@ app.post("/api/pvp", async (req, res) => {
     const value = booleanPropertyValue(enabled);
     await writeServerProperty(server, "pvp", value);
     const target = await recreateContainerWithEnv(server, i, { PVP: value, OVERRIDE_SERVER_PROPERTIES: "true" });
-    let note = null;
+    const notes = [`PVP server.properties and startup env set to ${value}.`];
+    let livePvp = null;
 
-    if (edition === "bedrock") {
+    if (edition !== "unknown") {
       try {
-        await sendServerCommandWhenReady({ ...server, container: target }, ["gamerule", "pvp", value]);
-        note = `Bedrock gamerule pvp ${value} applied.`;
+        livePvp = await withServerCommandWhenReady({ ...server, container: target }, (readyInspect) => setPvpGameRule({ ...server, container: target }, readyInspect, enabled), 45000);
+        if (livePvp.value === enabled) {
+          notes.push(`Live gamerule ${livePvp.rule} confirmed ${value}.`);
+        } else {
+          notes.push(`Live gamerule was not confirmed: ${livePvp.error || "no supported PVP gamerule name was accepted"}.`);
+        }
       } catch (error) {
-        note = `PVP file/startup config updated, but Bedrock gamerule could not be confirmed: ${String(error.message || error)}`;
+        notes.push(`Live gamerule could not be confirmed: ${String(error.message || error)}`);
       }
     }
 
-    res.json({ ok: true, enabled, filePvp: value, recreated: true, target, note });
+    res.json({
+      ok: true,
+      enabled,
+      filePvp: value,
+      livePvp: livePvp?.value ?? null,
+      livePvpRule: livePvp?.rule ?? null,
+      livePvpError: livePvp?.error ?? null,
+      recreated: true,
+      target,
+      note: notes.join(" "),
+    });
   } catch (error) {
     res.status(500).json({ error: String(error.message || error) });
   }

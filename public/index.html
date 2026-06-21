@@ -1741,6 +1741,8 @@
       }
 
       function pvpValue(info) {
+        const live = normalizeToggleValue(info.livePvp);
+        if (live) return live;
         const file = normalizeToggleValue(info.filePvp);
         const env = normalizeToggleValue(info.envPvp);
         if (file && env && file !== env) return "";
@@ -1748,8 +1750,14 @@
       }
 
       function formatPvp(info) {
+        const live = normalizeToggleValue(info.livePvp);
         const file = normalizeToggleValue(info.filePvp);
         const env = normalizeToggleValue(info.envPvp);
+        if (live) {
+          const source = info.livePvpRule ? ` via ${info.livePvpRule}` : "";
+          const conflicts = [file && file !== live ? `file ${toggleLabel(file)}` : "", env && env !== live ? `startup ${toggleLabel(env)}` : ""].filter(Boolean);
+          return conflicts.length ? `Live ${toggleLabel(live)}${source}; conflict with ${conflicts.join(", ")}` : `Live ${toggleLabel(live)}${source}`;
+        }
         if (file && env && file !== env) {
           return `Conflict: file ${toggleLabel(file)}, startup ${toggleLabel(env)}`;
         }
@@ -1893,6 +1901,8 @@
           ["Image", info.image],
           ["State", info.state],
           ["PVP", formatPvp(info)],
+          ["PVP Live Rule", info.livePvpRule || "-"],
+          ["PVP Live Error", info.livePvpError || "-"],
           ["PVP Startup Env", info.envPvp || "-"],
           ["Property Sync", info.envOverrideServerProperties || "-"],
           ["Hardcore", formatHardcore(info)],
@@ -2942,7 +2952,7 @@
         const verb = enabled ? "enable" : "disable";
         const confirmed = await confirmAction({
           title: `${enabled ? "Enable" : "Disable"} PVP`,
-          message: `This will ${verb} PVP in server.properties and recreate the Minecraft container with the updated startup setting.`,
+          message: `This will ${verb} PVP in server.properties, update the startup env, recreate the Minecraft container, and confirm the live gamerule when available.`,
           confirmText: enabled ? "Enable" : "Disable",
         });
         if (!confirmed) return;
