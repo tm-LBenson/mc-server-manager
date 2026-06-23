@@ -240,24 +240,33 @@
       }
 
       .server-summary {
-        display: grid;
-        grid-template-columns: minmax(160px, 0.45fr) minmax(220px, 1fr) minmax(180px, 0.65fr);
-        gap: 10px;
-      }
-
-      .summary-item {
-        min-width: 0;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
         border: 1px solid var(--border);
         border-radius: 8px;
         background: var(--surface-2);
-        padding: 11px 13px;
+        padding: 13px 14px;
       }
 
-      .summary-value {
+      .current-server-copy {
+        min-width: 0;
+      }
+
+      .current-server-name {
         margin-top: 5px;
         overflow-wrap: anywhere;
         color: var(--text);
+        font-size: 1.05rem;
         font-weight: 750;
+      }
+
+      .current-server-motd {
+        margin-top: 4px;
+        overflow-wrap: anywhere;
+        color: var(--muted);
+        line-height: 1.35;
       }
 
       .menu-panel {
@@ -554,6 +563,10 @@
         overflow-wrap: anywhere;
       }
 
+      td[title] {
+        cursor: help;
+      }
+
       tr:last-child td {
         border-bottom: 0;
       }
@@ -694,10 +707,14 @@
         .connection-grid,
         .grid.two,
         .notes-layout,
-        .metrics,
-        .server-summary {
+        .metrics {
           grid-template-columns: 1fr;
         }
+
+        .server-summary {
+          display: grid;
+        }
+
       }
 
       @media (max-width: 560px) {
@@ -753,35 +770,29 @@
         </div>
         <div class="top-meta" aria-live="polite">
           <span class="pill"><span id="stateDot" class="dot"></span><strong id="statePill">Loading</strong></span>
-          <span class="pill">Target <strong id="targetPill">-</strong></span>
-          <span class="pill">Edition <strong id="editionPill">-</strong></span>
-          <span class="pill">Host <strong id="hostPill">-</strong></span>
+          <span class="pill hidden">Target <strong id="targetPill">-</strong></span>
+          <span class="pill hidden">Edition <strong id="editionPill">-</strong></span>
+          <span class="pill hidden">Host <strong id="hostPill">-</strong></span>
           <button id="logoutBtn" class="btn subtle" type="button">Sign Out</button>
         </div>
       </header>
 
       <section class="panel" aria-labelledby="targetHeading">
         <div class="panel-header">
-          <h2 id="targetHeading">Target</h2>
+          <h2 id="targetHeading">Current Server</h2>
           <button id="refreshBtn" class="btn subtle" type="button">Refresh</button>
         </div>
         <div class="panel-body">
           <div class="server-summary" aria-label="Current server">
-            <div class="summary-item">
-              <div class="metric-label">Server Name</div>
-              <div id="serverNameSummary" class="summary-value">-</div>
+            <div class="current-server-copy">
+              <div class="metric-label">Server</div>
+              <div id="serverNameSummary" class="current-server-name">-</div>
+              <div id="motdSummary" class="current-server-motd">-</div>
             </div>
-            <div class="summary-item">
-              <div class="metric-label">MOTD</div>
-              <div id="motdSummary" class="summary-value">-</div>
-            </div>
-            <div class="summary-item">
-              <div class="metric-label">Container</div>
-              <div id="containerSummary" class="summary-value">-</div>
-            </div>
+            <span id="containerSummary" class="visually-hidden">-</span>
           </div>
           <details class="menu-panel">
-            <summary>Change target</summary>
+            <summary>Switch server</summary>
             <div class="control-strip">
               <label class="visually-hidden" for="serverSelect">Managed server</label>
               <select id="serverSelect">
@@ -803,11 +814,11 @@
       </section>
 
       <nav class="tabs" role="tablist" aria-label="Server workspace">
-        <button class="tab-button" type="button" role="tab" aria-selected="true" data-tab="overview">Overview</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="true" data-tab="overview">Dashboard</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="operations">Server</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="players">Players</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="control">Tools</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="notes">Notes</button>
-        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="control">Control Center</button>
-        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="operations">Operations</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="logs">Logs</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="settings">Settings</button>
       </nav>
@@ -825,12 +836,12 @@
             <div id="difficultyDetail" class="metric-detail">-</div>
           </div>
           <div class="metric">
-            <div class="metric-label">Image</div>
+            <div class="metric-label">PVP</div>
             <div id="imageMetric" class="metric-value">-</div>
             <div id="restartMetric" class="metric-detail">-</div>
           </div>
           <div class="metric">
-            <div class="metric-label">List File</div>
+            <div class="metric-label">Network</div>
             <div id="whitelistFileMetric" class="metric-value">-</div>
             <div id="portsMetric" class="metric-detail">-</div>
           </div>
@@ -838,7 +849,7 @@
 
         <section class="panel" aria-labelledby="detailsHeading">
           <div class="panel-header">
-            <h2 id="detailsHeading">Details</h2>
+            <h2 id="detailsHeading">Server Info</h2>
           </div>
           <div class="panel-body">
             <dl id="detailsList" class="details-grid"></dl>
@@ -943,7 +954,7 @@
       <section class="tab-panel hidden" data-tab-panel="control">
         <section class="panel" aria-labelledby="controlHeading">
           <div class="panel-header">
-            <h2 id="controlHeading">Player State</h2>
+            <h2 id="controlHeading">Player Tools</h2>
             <div class="form-row">
               <button id="gameRefreshPlayersBtn" class="btn subtle" type="button" data-java-control>Refresh Players</button>
               <button id="openPlayerActionsBtn" class="btn" type="button" data-java-control>Actions</button>
@@ -998,7 +1009,7 @@
       <section class="tab-panel hidden" data-tab-panel="operations">
         <section class="panel" aria-labelledby="operationsHeading">
           <div class="panel-header">
-            <h2 id="operationsHeading">Operations</h2>
+            <h2 id="operationsHeading">Server Controls</h2>
           </div>
           <div class="panel-body">
             <div class="form-row">
@@ -1245,7 +1256,7 @@
           <button id="gameSetModeBtn" class="btn" type="button" data-java-control>Set Mode</button>
           <div class="field grow">
             <label for="gameItemInput">Give Item</label>
-            <input id="gameItemInput" autocomplete="off" value="minecraft:ender_pearl" data-java-control />
+            <input id="gameItemInput" autocomplete="off" value="ender_pearl" data-java-control />
           </div>
           <div class="field" style="width: 120px">
             <label for="gameItemCountInput">Count</label>
@@ -1772,6 +1783,29 @@
         return info.serverProperties?.[key] || "-";
       }
 
+      function friendlyIdentifier(value) {
+        const raw = String(value || "").trim();
+        if (!raw) return "-";
+        const base = raw.split(/[{\[]/, 1)[0];
+        const localName = base.includes(":") ? base.slice(base.indexOf(":") + 1) : base;
+        return localName
+          .split(/[_\s-]+/)
+          .filter(Boolean)
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(" ") || raw;
+      }
+
+      function friendlyItemName(itemId) {
+        return friendlyIdentifier(itemId);
+      }
+
+      function normalizeItemEntry(value) {
+        return String(value || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, "_");
+      }
+
       function showTab(tabName) {
         state.activeTab = tabName;
         document.querySelectorAll("[data-tab]").forEach((button) => {
@@ -1860,18 +1894,18 @@
         setText(el.targetPill, info.target || info.name);
         setText(el.editionPill, info.edition || "unknown");
         setText(el.hostPill, info.hostLabel || "local Docker");
-        setText(el.serverNameSummary, info.serverName || "n/a");
-        setText(el.motdSummary, info.motd || "n/a");
+        setText(el.serverNameSummary, info.serverName || info.serverLabel || info.name || "n/a");
+        setText(el.motdSummary, info.motd || "No MOTD set");
         setText(el.containerSummary, info.target || info.name);
 
         setText(el.stateMetric, running ? "Running" : info.state || "Stopped");
         setText(el.uptimeMetric, info.hostLabel || "No host");
         setText(el.difficultyMetric, difficulty);
         setText(el.difficultyDetail, info.fileDifficulty ? "server.properties" : info.envDifficulty ? "environment" : "not reported");
-        setText(el.imageMetric, info.image || "n/a");
-        setText(el.restartMetric, formatRestartPolicy(info.restartPolicy));
-        setText(el.whitelistFileMetric, info.whitelistFile || "n/a");
-        setText(el.portsMetric, formatPorts(info.ports));
+        setText(el.imageMetric, toggleLabel(pvp));
+        setText(el.restartMetric, `Hardcore ${formatHardcore(info)}`);
+        setText(el.whitelistFileMetric, formatPorts(info.ports));
+        setText(el.portsMetric, info.hostLabel || "No host");
 
         document.querySelectorAll("[data-difficulty]").forEach((button) => {
           button.setAttribute("aria-pressed", button.dataset.difficulty === difficulty ? "true" : "false");
@@ -1888,27 +1922,21 @@
 
       function renderDetails(info) {
         const rows = [
-          ["Container", info.name],
-          ["Server", info.serverLabel],
-          ["Host", info.hostLabel],
-          ["Target", info.target],
-          ["Edition", info.edition],
           ["Server Name", info.serverName || "-"],
           ["MOTD", info.motd || "-"],
+          ["Manager Label", info.serverLabel],
+          ["Container", info.name || info.target],
+          ["Host", info.hostLabel],
+          ["Edition", info.edition],
+          ["State", info.state],
+          ["Difficulty", info.fileDifficulty || info.envDifficulty || "-"],
           ["Level Name", propertyValue(info, "level-name")],
           ["Game Mode", propertyValue(info, "gamemode")],
           ["Max Players", propertyValue(info, "max-players")],
-          ["Image", info.image],
-          ["State", info.state],
           ["PVP", formatPvp(info)],
-          ["PVP Live Rule", info.livePvpRule || "-"],
-          ["PVP Live Error", info.livePvpError || "-"],
-          ["PVP Startup Env", info.envPvp || "-"],
-          ["Property Sync", info.envOverrideServerProperties || "-"],
           ["Hardcore", formatHardcore(info)],
           ["Ports", formatPorts(info.ports)],
           ["Restart", formatRestartPolicy(info.restartPolicy)],
-          ["Mounts", (info.mounts || []).map((mount) => `${mount.source || mount.type} -> ${mount.dest}${mount.rw ? "" : " (read only)"}`).join("\n")],
         ];
 
         el.detailsList.replaceChildren();
@@ -2285,11 +2313,14 @@
 
         items.forEach((item) => {
           const row = document.createElement("tr");
-          [item.slot ?? "-", item.id, item.count ?? 1].forEach((text) => {
-            const td = document.createElement("td");
-            td.textContent = text;
-            row.append(td);
-          });
+          const slot = document.createElement("td");
+          const name = document.createElement("td");
+          const count = document.createElement("td");
+          slot.textContent = item.slot ?? "-";
+          name.textContent = friendlyItemName(item.id);
+          if (item.id) name.title = item.id;
+          count.textContent = item.count ?? 1;
+          row.append(slot, name, count);
           tbody.append(row);
         });
 
@@ -2325,7 +2356,7 @@
           } else {
             chest.items.forEach((item) => {
               const slot = item.slot == null ? "?" : item.slot;
-              select.add(new Option(`${item.count || 1}x ${item.id} (slot ${slot})`, item.id));
+              select.add(new Option(`${item.count || 1}x ${friendlyItemName(item.id)} (slot ${slot})`, item.id));
             });
           }
 
@@ -2634,8 +2665,9 @@
         el.containerSelect.replaceChildren(new Option("Known containers", ""));
         containers.forEach((container) => {
           const edition = container.edition && container.edition !== "unknown" ? `${container.edition} - ` : "";
-          const serverName = container.serverName ? ` - ${container.serverName}` : "";
-          const option = new Option(`${container.name}${serverName} - ${edition}${container.status}`, container.name);
+          const label = container.serverName || container.name;
+          const containerName = container.serverName ? ` (${container.name})` : "";
+          const option = new Option(`${label}${containerName} - ${edition}${container.status}`, container.name);
           el.containerSelect.add(option);
         });
 
@@ -2655,7 +2687,7 @@
         const thead = document.createElement("thead");
         const tbody = document.createElement("tbody");
         const header = document.createElement("tr");
-        ["Container", "Server Name", "MOTD", "Edition", "Status"].forEach((text) => {
+        ["Server Name", "Container", "Edition", "Status", "MOTD"].forEach((text) => {
           const th = document.createElement("th");
           th.textContent = text;
           header.append(th);
@@ -2668,7 +2700,7 @@
           row.addEventListener("click", () => {
             selectContainer(container);
           });
-          [container.name, container.serverName, container.motd, container.edition, container.status].forEach((text) => {
+          [container.serverName, container.name, container.edition, container.status, container.motd].forEach((text) => {
             const td = document.createElement("td");
             td.textContent = text || "-";
             row.append(td);
@@ -2724,7 +2756,7 @@
         el.targetInput.value = state.activeTarget;
         el.serverContainerInput.value = state.activeTarget;
         await loadInfo();
-        setMessage(el.targetMessage, `Defaulted to ${selected.name}`, "success");
+        setMessage(el.targetMessage, `Defaulted to ${selected.serverName || selected.name}`, "success");
         return true;
       }
 
@@ -2756,7 +2788,7 @@
             const data = await api("/api/containers");
             const selected = renderContainers(data.containers || []);
             const count = (data.containers || []).length;
-            const suffix = selected ? `; ${selected.name} selected` : "";
+            const suffix = selected ? `; ${selected.serverName || selected.name} selected` : "";
             setMessage(el.targetMessage, `${count} Minecraft container${count === 1 ? "" : "s"} loaded${suffix}`, "success");
           } catch (error) {
             setMessage(el.targetMessage, error.message, "error");
@@ -3204,7 +3236,7 @@
       el.gameSetModeBtn.addEventListener("click", () => runPlayerAction("gamemode", { mode: el.gameModeSelect.value }));
       el.gameGiveItemBtn.addEventListener("click", () =>
         runPlayerAction("give", {
-          item: el.gameItemInput.value,
+          item: normalizeItemEntry(el.gameItemInput.value),
           count: el.gameItemCountInput.value,
         }),
       );
