@@ -567,6 +567,39 @@
         cursor: help;
       }
 
+      .event-badge {
+        display: inline-flex;
+        min-height: 28px;
+        align-items: center;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--text);
+        font-size: 0.82rem;
+        font-weight: 800;
+        padding: 4px 9px;
+        white-space: nowrap;
+      }
+
+      .event-badge.join {
+        border-color: #5ebf7d;
+        background: var(--green-soft);
+      }
+
+      .event-badge.leave {
+        border-color: #6ea7d8;
+        background: var(--blue-soft);
+      }
+
+      .event-badge.chat {
+        border-color: #c9903d;
+        background: var(--amber-soft);
+      }
+
+      .event-badge.failed_login {
+        border-color: #c7665f;
+        background: var(--red-soft);
+      }
+
       tr:last-child td {
         border-bottom: 0;
       }
@@ -815,6 +848,7 @@
 
       <nav class="tabs" role="tablist" aria-label="Server workspace">
         <button class="tab-button" type="button" role="tab" aria-selected="true" data-tab="overview">Dashboard</button>
+        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="events">Events</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="operations">Server</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="players">Players</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="control">Tools</button>
@@ -857,6 +891,35 @@
               <summary>Raw inspect data</summary>
               <pre id="detailsRaw"></pre>
             </details>
+          </div>
+        </section>
+      </section>
+
+      <section class="tab-panel hidden" data-tab-panel="events">
+        <section class="panel" aria-labelledby="eventsHeading">
+          <div class="panel-header">
+            <h2 id="eventsHeading">Events</h2>
+            <button id="eventsRefreshBtn" class="btn subtle" type="button">Refresh Events</button>
+          </div>
+          <div class="panel-body">
+            <div class="form-row">
+              <div class="field" style="width: 150px">
+                <label for="eventLinesInput">Lines</label>
+                <input id="eventLinesInput" inputmode="numeric" value="1000" />
+              </div>
+              <div class="field" style="width: 210px">
+                <label for="eventTypeSelect">Type</label>
+                <select id="eventTypeSelect">
+                  <option value="all">All events</option>
+                  <option value="join">Logins</option>
+                  <option value="leave">Logouts</option>
+                  <option value="chat">Messages</option>
+                  <option value="failed_login">Failed logins</option>
+                </select>
+              </div>
+            </div>
+            <div id="eventsMessage" class="status-line" role="status" aria-live="polite"></div>
+            <div id="eventsTable" class="table-wrap"></div>
           </div>
         </section>
       </section>
@@ -1414,6 +1477,11 @@
         disableWhitelistBtn: document.getElementById("disableWhitelistBtn"),
         editionPill: document.getElementById("editionPill"),
         enableWhitelistBtn: document.getElementById("enableWhitelistBtn"),
+        eventLinesInput: document.getElementById("eventLinesInput"),
+        eventsMessage: document.getElementById("eventsMessage"),
+        eventsRefreshBtn: document.getElementById("eventsRefreshBtn"),
+        eventsTable: document.getElementById("eventsTable"),
+        eventTypeSelect: document.getElementById("eventTypeSelect"),
         gameClearInventoryBtn: document.getElementById("gameClearInventoryBtn"),
         gameDimensionMetric: document.getElementById("gameDimensionMetric"),
         gameFeedBtn: document.getElementById("gameFeedBtn"),
@@ -1535,6 +1603,7 @@
         el.addPlayerBtn,
         el.disableWhitelistBtn,
         el.enableWhitelistBtn,
+        el.eventsRefreshBtn,
         el.loadContainersBtn,
         el.logsBtn,
         el.newServerBtn,
@@ -1709,7 +1778,7 @@
       }
 
       function syncBusy() {
-        const blocking = [...state.busy].some((key) => !["containers", "logs", "refresh"].includes(key));
+        const blocking = [...state.busy].some((key) => !["containers", "events", "logs", "refresh"].includes(key));
         const javaReady = state.info?.edition === "java" && Boolean(state.info?.running);
         actionButtons.forEach((button) => {
           button.disabled = blocking;
@@ -1718,6 +1787,7 @@
           control.disabled = blocking || !javaReady;
         });
         el.loadContainersBtn.disabled = blocking || state.busy.has("containers");
+        el.eventsRefreshBtn.disabled = blocking || state.busy.has("events");
         el.logsBtn.disabled = blocking || state.busy.has("logs");
         el.refreshBtn.disabled = blocking || state.busy.has("refresh");
       }
@@ -1816,6 +1886,9 @@
         });
         if (tabName === "control") {
           loadGameStatus({ inspectSelected: true });
+        }
+        if (tabName === "events") {
+          loadEvents();
         }
         if (tabName === "notes") {
           renderPlayerNotes();
@@ -3114,6 +3187,91 @@
         });
       }
 
+      function eventTypeLabel(type) {
+        return {
+          chat: "Message",
+          failed_login: "Failed login",
+          join: "Login",
+          leave: "Logout",
+        }[type] || "Event";
+      }
+
+      function formatEventTime(value) {
+        if (!value) return "-";
+        const normalized = String(value).replace(/\.(\d{3})\d+(Z|[+-]\d{2}:\d{2})$/, ".$1$2");
+        const date = new Date(normalized);
+        if (Number.isNaN(date.getTime())) return value;
+        return date.toLocaleString();
+      }
+
+      function renderEvents(events = []) {
+        if (!events.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No matching events found in the selected log range";
+          el.eventsTable.replaceChildren(empty);
+          return;
+        }
+
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const tbody = document.createElement("tbody");
+        const header = document.createElement("tr");
+        ["Time", "Type", "Player", "Details"].forEach((text) => {
+          const th = document.createElement("th");
+          th.textContent = text;
+          header.append(th);
+        });
+        thead.append(header);
+
+        events.forEach((event) => {
+          const row = document.createElement("tr");
+          const time = document.createElement("td");
+          const type = document.createElement("td");
+          const player = document.createElement("td");
+          const details = document.createElement("td");
+          const badge = document.createElement("span");
+          const typeName = String(event.type || "event").replace(/[^a-z0-9_-]/gi, "");
+
+          time.textContent = formatEventTime(event.time);
+          badge.className = `event-badge ${typeName}`;
+          badge.textContent = eventTypeLabel(event.type);
+          type.append(badge);
+          player.textContent = event.player || "-";
+          details.textContent = event.message || "-";
+          if (event.raw) details.title = event.raw;
+          row.append(time, type, player, details);
+          tbody.append(row);
+        });
+
+        table.append(thead, tbody);
+        el.eventsTable.replaceChildren(table);
+      }
+
+      async function loadEvents() {
+        return withBusy("events", async () => {
+          const rawLines = Number.parseInt(el.eventLinesInput.value, 10);
+          const lines = Number.isFinite(rawLines) ? Math.max(1, Math.min(10000, rawLines)) : 1000;
+          el.eventLinesInput.value = String(lines);
+          setMessage(el.eventsMessage, "Loading events...");
+          try {
+            const data = await api(
+              endpointWithTargetParams("/api/events", {
+                lines,
+                type: el.eventTypeSelect.value || "all",
+              }),
+              {},
+              26000,
+            );
+            renderEvents(data.events || []);
+            setMessage(el.eventsMessage, `${data.count || 0} event${data.count === 1 ? "" : "s"} found`, "success");
+          } catch (error) {
+            renderEvents([]);
+            setMessage(el.eventsMessage, error.message, "error");
+          }
+        });
+      }
+
       async function showLogs() {
         return withBusy("logs", async () => {
           const rawLines = Number.parseInt(el.logLines.value, 10);
@@ -3255,6 +3413,11 @@
       el.blockInventoryBtn.addEventListener("click", inspectNearbyChests);
       el.deathDropsSaveBtn.addEventListener("click", saveDeathDrops);
       el.happyGhastSpeedBtn.addEventListener("click", setHappyGhastSpeed);
+      el.eventsRefreshBtn.addEventListener("click", loadEvents);
+      el.eventTypeSelect.addEventListener("change", loadEvents);
+      el.eventLinesInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") loadEvents();
+      });
       el.logsBtn.addEventListener("click", showLogs);
       el.logLines.addEventListener("keydown", (event) => {
         if (event.key === "Enter") showLogs();

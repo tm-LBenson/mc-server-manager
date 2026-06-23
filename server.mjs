@@ -1549,6 +1549,130 @@ const listManagedContainers = async (server) => {
   return Promise.all(rows.map((container) => containerInfoFromRow(server, container)));
 };
 
+const EVENT_FAILURE_RE =
+  /not white-?listed|whitelist|failed to verify username|invalid session|banned|server is full|outdated (?:client|server)|took too long to log in|authentication|multiplayer\.disconnect\.(?:not_whitelisted|banned|server_full|outdated_client|outdated_server|unverified_username|duplicate_login|authservers_down)/i;
+
+const stripMinecraftLogPrefix = (line = "") =>
+  String(line)
+    .replace(/^\[[^\]]+\]\s+\[[^\]]+\]:\s*/, "")
+    .replace(/^\[[^\]]+\]\s+\[[^\]]+\]\s*/, "")
+    .trim();
+
+const splitDockerTimestamp = (line = "") => {
+  const match = String(line).match(/^(\d{4}-\d{2}-\d{2}T\S+)\s+(.*)$/);
+  if (!match) return { time: null, message: stripMinecraftLogPrefix(line) };
+  return {
+    time: match[1],
+    message: stripMinecraftLogPrefix(match[2]),
+  };
+};
+
+const extractFailurePlayer = (message = "") =>
+  message.match(/\bname=([A-Za-z0-9_]{1,16})\b/i)?.[1] ||
+  message.match(/^([A-Za-z0-9_]{1,16})\s+lost connection:/i)?.[1] ||
+  message.match(/^Disconnecting\s+([A-Za-z0-9_]{1,16})\s*:/i)?.[1] ||
+  "";
+
+const eventFromLogLine = (line = "", index = 0) => {
+  const { time, message } = splitDockerTimestamp(line);
+  if (!message) return null;
+
+  const chat =
+    message.match(/^(?:\[[^\]]+\]\s*)?<([^>]+)>\s+(.+)$/) ||
+    message.match(/^\[CHAT\]\s*(?:\[[^\]]+\]\s*)?<([^>]+)>\s*(.+)$/i);
+  if (chat) {
+    return {
+      id: `event-${index}`,
+      type: "chat",
+      time,
+      player: chat[1].trim(),
+      message: chat[2].trim(),
+      raw: line,
+    };
+  }
+
+  const javaJoin = message.match(/^([A-Za-z0-9_]{1,16}) joined the game$/i);
+  const bedrockJoin = message.match(/^Player connected:\s*([^,]+)(?:,|$)/i);
+  if (javaJoin || bedrockJoin) {
+    return {
+      id: `event-${index}`,
+      type: "join",
+      time,
+      player: (javaJoin?.[1] || bedrockJoin?.[1] || "").trim(),
+      message: "Joined the server",
+      raw: line,
+    };
+  }
+
+  const javaLeave = message.match(/^([A-Za-z0-9_]{1,16}) left the game$/i);
+  const bedrockLeave = message.match(/^Player disconnected:\s*([^,]+)(?:,|$)/i);
+  if (javaLeave || bedrockLeave) {
+    return {
+      id: `event-${index}`,
+      type: "leave",
+      time,
+      player: (javaLeave?.[1] || bedrockLeave?.[1] || "").trim(),
+      message: "Left the server",
+      raw: line,
+    };
+  }
+
+  const lostConnection = message.match(/^([A-Za-z0-9_]{1,16}) lost connection:\s*(.+)$/i);
+  if (lostConnection) {
+    const reason = lostConnection[2].trim();
+    if (EVENT_FAILURE_RE.test(reason)) {
+      return {
+        id: `event-${index}`,
+        type: "failed_login",
+        time,
+        player: lostConnection[1],
+        message: reason,
+        raw: line,
+      };
+    }
+    return {
+      id: `event-${index}`,
+      type: "leave",
+      time,
+      player: lostConnection[1],
+      message: reason || "Disconnected",
+      raw: line,
+    };
+  }
+
+  const disconnecting = message.match(/^Disconnecting\s+(.+?):\s*(.+)$/i);
+  if (disconnecting && EVENT_FAILURE_RE.test(disconnecting[2])) {
+    const reason = message.match(/\):\s*(.+)$/)?.[1] || disconnecting[2].trim();
+    return {
+      id: `event-${index}`,
+      type: "failed_login",
+      time,
+      player: extractFailurePlayer(message),
+      message: reason,
+      raw: line,
+    };
+  }
+
+  if (EVENT_FAILURE_RE.test(message) && /login|username|whitelist|banned|disconnect/i.test(message)) {
+    return {
+      id: `event-${index}`,
+      type: "failed_login",
+      time,
+      player: extractFailurePlayer(message),
+      message,
+      raw: line,
+    };
+  }
+
+  return null;
+};
+
+const parseServerEvents = (raw = "") =>
+  String(raw)
+    .split(/\r?\n/)
+    .map((line, index) => eventFromLogLine(line, index))
+    .filter(Boolean);
+
 // -------- API --------
 app.get("/api/servers", (_req, res) => {
   res.json({
@@ -2230,6 +2354,28 @@ app.get("/api/logs", async (req, res) => {
     res.type("text/plain").send(out);
   } catch (error) {
     res.status(500).type("text/plain").send(String(error.message || error));
+  }
+});
+
+app.get("/api/events", async (req, res) => {
+  const lines = Math.max(1, Math.min(10000, Number.parseInt(req.query.lines || "1000", 10) || 1000));
+  const type = String(req.query.type || "all");
+  try {
+    const server = resolveServer(req.query);
+    const raw = await run(server, "logs", "--timestamps", "--tail", String(lines), server.container);
+    const events = parseServerEvents(raw)
+      .filter((event) => type === "all" || event.type === type)
+      .reverse();
+    res.json({
+      serverId: server.id,
+      target: server.container,
+      lines,
+      type,
+      count: events.length,
+      events,
+    });
+  } catch (error) {
+    res.status(500).json({ error: String(error.message || error) });
   }
 });
 
