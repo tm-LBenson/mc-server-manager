@@ -521,6 +521,11 @@
         color: #dff8e6;
       }
 
+      .logs-mode-switch {
+        max-width: 320px;
+        margin-bottom: 16px;
+      }
+
       .status-line {
         min-height: 22px;
         margin-top: 10px;
@@ -848,7 +853,6 @@
 
       <nav class="tabs" role="tablist" aria-label="Server workspace">
         <button class="tab-button" type="button" role="tab" aria-selected="true" data-tab="overview">Dashboard</button>
-        <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="events">Events</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="operations">Server</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="players">Players</button>
         <button class="tab-button" type="button" role="tab" aria-selected="false" data-tab="control">Tools</button>
@@ -891,35 +895,6 @@
               <summary>Raw inspect data</summary>
               <pre id="detailsRaw"></pre>
             </details>
-          </div>
-        </section>
-      </section>
-
-      <section class="tab-panel hidden" data-tab-panel="events">
-        <section class="panel" aria-labelledby="eventsHeading">
-          <div class="panel-header">
-            <h2 id="eventsHeading">Events</h2>
-            <button id="eventsRefreshBtn" class="btn subtle" type="button">Refresh Events</button>
-          </div>
-          <div class="panel-body">
-            <div class="form-row">
-              <div class="field" style="width: 150px">
-                <label for="eventLinesInput">Lines</label>
-                <input id="eventLinesInput" inputmode="numeric" value="1000" />
-              </div>
-              <div class="field" style="width: 210px">
-                <label for="eventTypeSelect">Type</label>
-                <select id="eventTypeSelect">
-                  <option value="all">All events</option>
-                  <option value="join">Logins</option>
-                  <option value="leave">Logouts</option>
-                  <option value="chat">Messages</option>
-                  <option value="failed_login">Failed logins</option>
-                </select>
-              </div>
-            </div>
-            <div id="eventsMessage" class="status-line" role="status" aria-live="polite"></div>
-            <div id="eventsTable" class="table-wrap"></div>
           </div>
         </section>
       </section>
@@ -1125,14 +1100,41 @@
             <h2 id="logsHeading">Logs</h2>
           </div>
           <div class="panel-body">
-            <div class="form-row">
-              <div class="field" style="width: 130px">
-                <label for="logLines">Lines</label>
-                <input id="logLines" inputmode="numeric" value="200" />
-              </div>
-              <button id="logsBtn" class="btn" type="button">Refresh Logs</button>
+            <div class="segmented two logs-mode-switch" role="group" aria-label="Log view">
+              <button id="logsViewRawBtn" class="btn" type="button" aria-pressed="true">Raw Logs</button>
+              <button id="logsViewEventsBtn" class="btn" type="button" aria-pressed="false">Events</button>
             </div>
-            <pre id="logs"></pre>
+            <div id="rawLogsView">
+              <div class="form-row">
+                <div class="field" style="width: 130px">
+                  <label for="logLines">Lines</label>
+                  <input id="logLines" inputmode="numeric" value="200" />
+                </div>
+                <button id="logsBtn" class="btn" type="button">Refresh Logs</button>
+              </div>
+              <pre id="logs"></pre>
+            </div>
+            <div id="eventsLogsView" class="hidden">
+              <div class="form-row">
+                <div class="field" style="width: 150px">
+                  <label for="eventLinesInput">Lines</label>
+                  <input id="eventLinesInput" inputmode="numeric" value="1000" />
+                </div>
+                <div class="field" style="width: 210px">
+                  <label for="eventTypeSelect">Type</label>
+                  <select id="eventTypeSelect">
+                    <option value="all">All events</option>
+                    <option value="join">Logins</option>
+                    <option value="leave">Logouts</option>
+                    <option value="chat">Messages</option>
+                    <option value="failed_login">Failed logins</option>
+                  </select>
+                </div>
+                <button id="eventsRefreshBtn" class="btn" type="button">Refresh Events</button>
+              </div>
+              <div id="eventsMessage" class="status-line" role="status" aria-live="polite"></div>
+              <div id="eventsTable" class="table-wrap"></div>
+            </div>
           </div>
         </section>
       </section>
@@ -1437,6 +1439,7 @@
         activeTarget: "",
         activeServerId: "",
         activeTab: "overview",
+        activeLogView: "raw",
         editingServerId: "",
         editingNoteId: "",
         gamePlayers: [],
@@ -1482,6 +1485,7 @@
         eventsRefreshBtn: document.getElementById("eventsRefreshBtn"),
         eventsTable: document.getElementById("eventsTable"),
         eventTypeSelect: document.getElementById("eventTypeSelect"),
+        eventsLogsView: document.getElementById("eventsLogsView"),
         gameClearInventoryBtn: document.getElementById("gameClearInventoryBtn"),
         gameDimensionMetric: document.getElementById("gameDimensionMetric"),
         gameFeedBtn: document.getElementById("gameFeedBtn"),
@@ -1518,6 +1522,8 @@
         logLines: document.getElementById("logLines"),
         logs: document.getElementById("logs"),
         logsBtn: document.getElementById("logsBtn"),
+        logsViewEventsBtn: document.getElementById("logsViewEventsBtn"),
+        logsViewRawBtn: document.getElementById("logsViewRawBtn"),
         logoutBtn: document.getElementById("logoutBtn"),
         newServerBtn: document.getElementById("newServerBtn"),
         newNoteBtn: document.getElementById("newNoteBtn"),
@@ -1559,6 +1565,7 @@
         removePlayerBtn: document.getElementById("removePlayerBtn"),
         renameBtn: document.getElementById("renameBtn"),
         renameInput: document.getElementById("renameInput"),
+        rawLogsView: document.getElementById("rawLogsView"),
         restartBtn: document.getElementById("restartBtn"),
         restartMetric: document.getElementById("restartMetric"),
         deleteServerBtn: document.getElementById("deleteServerBtn"),
@@ -1887,9 +1894,7 @@
         if (tabName === "control") {
           loadGameStatus({ inspectSelected: true });
         }
-        if (tabName === "events") {
-          loadEvents();
-        }
+        if (tabName === "logs") refreshLogView();
         if (tabName === "notes") {
           renderPlayerNotes();
         }
@@ -3272,6 +3277,20 @@
         });
       }
 
+      function refreshLogView() {
+        return state.activeLogView === "events" ? loadEvents() : showLogs();
+      }
+
+      function showLogView(view, { refresh = true } = {}) {
+        state.activeLogView = view === "events" ? "events" : "raw";
+        const eventsActive = state.activeLogView === "events";
+        el.rawLogsView.classList.toggle("hidden", eventsActive);
+        el.eventsLogsView.classList.toggle("hidden", !eventsActive);
+        el.logsViewRawBtn.setAttribute("aria-pressed", eventsActive ? "false" : "true");
+        el.logsViewEventsBtn.setAttribute("aria-pressed", eventsActive ? "true" : "false");
+        if (refresh && state.activeTab === "logs") refreshLogView();
+      }
+
       async function showLogs() {
         return withBusy("logs", async () => {
           const rawLines = Number.parseInt(el.logLines.value, 10);
@@ -3288,8 +3307,7 @@
             const data = await api(`/api/logs?${params.toString()}`, {}, 26000);
             el.logs.textContent = data.raw || "No log output";
           } catch (error) {
-            el.logs.textContent = "";
-            setMessage(el.operationMessage, error.message, "error");
+            el.logs.textContent = error.message;
           }
         });
       }
@@ -3413,6 +3431,8 @@
       el.blockInventoryBtn.addEventListener("click", inspectNearbyChests);
       el.deathDropsSaveBtn.addEventListener("click", saveDeathDrops);
       el.happyGhastSpeedBtn.addEventListener("click", setHappyGhastSpeed);
+      el.logsViewRawBtn.addEventListener("click", () => showLogView("raw"));
+      el.logsViewEventsBtn.addEventListener("click", () => showLogView("events"));
       el.eventsRefreshBtn.addEventListener("click", loadEvents);
       el.eventTypeSelect.addEventListener("change", loadEvents);
       el.eventLinesInput.addEventListener("keydown", (event) => {
