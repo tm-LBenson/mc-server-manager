@@ -2646,6 +2646,7 @@
           ["Rule Name", data.keepInventoryRule || "-"],
           ["Rule Error", data.keepInventoryError || "-"],
           ["Tracked Players", (data.monitor?.trackedPlayers || []).join(", ") || "-"],
+          ["Pending Clears", (data.monitor?.pendingClears || []).join(", ") || "-"],
           ["Last Check", data.monitor?.lastCheck || "-"],
           ["Last Event", lastEvent ? `${lastEvent.player} - ${lastEvent.mode} - ${lastEvent.ok ? "ok" : "error"}` : "-"],
           ["Last Error", data.monitor?.lastError || "-"],

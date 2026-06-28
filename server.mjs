@@ -673,6 +673,7 @@ const getDeathDropMonitor = (server) => {
     deathDropMonitors.set(key, {
       deaths: new Map(),
       lastDeathLocations: new Map(),
+      pendingClears: new Map(),
       processedDeaths: new Set(),
       snapshots: new Map(),
       objectiveReady: false,
@@ -702,6 +703,7 @@ const publicDeathDropMonitor = (server) => {
     lastCheck: state.lastCheck,
     lastEvent: state.lastEvent,
     lastError: state.lastError,
+    pendingClears: [...(state.pendingClears || new Map()).keys()],
     trackedPlayers: state.trackedPlayers || [],
   };
 };
@@ -962,6 +964,57 @@ const itemStackNbt = (item) => {
   return `{id:"${item.id}",count:${Number.parseInt(item.count || "1", 10) || 1}}`;
 };
 
+const clearPlayerInventoryAfterRespawn = async (server, i, player, options = {}) => {
+  const attempts = Number.parseInt(options.attempts || "8", 10) || 8;
+  const initialDelay = Number.parseInt(options.initialDelayMs || "500", 10) || 500;
+  const retryDelay = Number.parseInt(options.retryDelayMs || "900", 10) || 900;
+  let lastError = null;
+  let lastStdout = "";
+  let remainingStacks = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (attempt === 1) {
+      await sleep(initialDelay);
+    } else {
+      await sleep(retryDelay);
+    }
+
+    const clearResult = await sendServerCommand(server, i, ["clear", player]).catch((error) => ({ stdout: "", error: String(error.message || error) }));
+    lastStdout = clearResult.stdout || "";
+
+    if (clearResult.error) {
+      lastError = clearResult.error;
+      continue;
+    }
+
+    const snapshot = await collectJavaPlayerSnapshot(server, i, player).catch((error) => {
+      lastError = String(error.message || error);
+      return null;
+    });
+
+    if (!snapshot) continue;
+
+    remainingStacks = (snapshot.inventory || []).filter((item) => item?.id).length;
+    if (remainingStacks === 0) {
+      return {
+        cleared: true,
+        attempts: attempt,
+        remainingStacks,
+        note: lastStdout || null,
+      };
+    }
+
+    lastError = `${remainingStacks} inventory stack${remainingStacks === 1 ? "" : "s"} remained after clear`;
+  }
+
+  return {
+    cleared: false,
+    attempts,
+    remainingStacks,
+    note: lastError || lastStdout || "Player inventory was not confirmed empty after respawn.",
+  };
+};
+
 const chunkItems = (items, size) => {
   const chunks = [];
   for (let index = 0; index < items.length; index += size) {
@@ -1059,15 +1112,16 @@ const createDeathChests = async (server, i, player, snapshot) => {
     }),
   ]).catch(() => null);
 
-  await sleep(1500);
-  const clearResult = await sendServerCommand(server, i, ["clear", player]).catch((error) => ({ stdout: "", error: String(error.message || error) }));
+  const clearResult = await clearPlayerInventoryAfterRespawn(server, i, player);
 
   return {
     position: pos,
     chests,
     itemStacks: inventory.length,
-    cleared: !clearResult.error,
-    note: clearResult.error || null,
+    cleared: clearResult.cleared,
+    clearAttempts: clearResult.attempts,
+    remainingStacks: clearResult.remainingStacks,
+    note: clearResult.cleared ? null : clearResult.note,
   };
 };
 
@@ -1109,14 +1163,15 @@ const dropInventoryAtDeathSpot = async (server, i, player, snapshot) => {
     }),
   ]).catch(() => null);
 
-  await sleep(1500);
-  const clearResult = await sendServerCommand(server, i, ["clear", player]).catch((error) => ({ stdout: "", error: String(error.message || error) }));
+  const clearResult = await clearPlayerInventoryAfterRespawn(server, i, player);
 
   return {
     position: pos,
     droppedStacks: inventory.length,
-    cleared: !clearResult.error,
-    note: clearResult.error || null,
+    cleared: clearResult.cleared,
+    clearAttempts: clearResult.attempts,
+    remainingStacks: clearResult.remainingStacks,
+    note: clearResult.cleared ? null : clearResult.note,
   };
 };
 
@@ -1164,8 +1219,10 @@ const handleDeathDropEvent = async (server, i, player, snapshot, config, state) 
         event.ok = true;
         event.note = "keepInventory was not active, so the manager skipped virtual item drops to prevent duplication. Normal drops were tightened and keepInventory was re-applied for future deaths.";
       } else {
-        Object.assign(event, await dropInventoryAtDeathSpot(server, i, player, snapshot));
-        event.ok = true;
+        const result = await dropInventoryAtDeathSpot(server, i, player, snapshot);
+        Object.assign(event, result);
+        event.ok = result.cleared !== false;
+        if (!event.ok) event.error = result.note || "Player inventory was not cleared after the virtual drop.";
       }
     } else if (config.mode === "chest") {
       event.keepInventoryConfirmed = await confirmKeepInventoryForVirtualDrops(server, i, config);
@@ -1174,20 +1231,64 @@ const handleDeathDropEvent = async (server, i, player, snapshot, config, state) 
         event.ok = true;
         event.note = "keepInventory was not active, so the manager skipped death chest creation to prevent duplication. Normal drops were tightened and keepInventory was re-applied for future deaths.";
       } else {
-        Object.assign(event, await createDeathChests(server, i, player, snapshot));
-        event.ok = true;
+        const result = await createDeathChests(server, i, player, snapshot);
+        Object.assign(event, result);
+        event.ok = result.cleared !== false;
+        if (!event.ok) event.error = result.note || "Player inventory was not cleared after the death chest.";
       }
     } else {
       event.ok = true;
       event.note = "keepInventory is enabled; no death-drop action was needed.";
     }
-    state.lastError = null;
+    if (!event.ok && (event.droppedStacks > 0 || event.itemStacks > 0)) {
+      state.pendingClears.set(player, {
+        mode: config.mode,
+        queuedAt: event.at,
+        attempts: event.clearAttempts || 0,
+        remainingStacks: event.remainingStacks ?? null,
+      });
+    } else if (event.ok) {
+      state.pendingClears.delete(player);
+    }
+    state.lastError = event.ok ? null : event.error || event.note || "Death drop action was incomplete.";
   } catch (error) {
     event.error = String(error.message || error);
     state.lastError = event.error;
   }
 
   state.lastEvent = event;
+};
+
+const processPendingInventoryClears = async (server, i, players, state) => {
+  const onlinePlayers = new Set(players);
+
+  for (const [player, pending] of state.pendingClears) {
+    if (!onlinePlayers.has(player)) continue;
+
+    const result = await clearPlayerInventoryAfterRespawn(server, i, player, {
+      attempts: 2,
+      initialDelayMs: 100,
+      retryDelayMs: 500,
+    });
+    pending.attempts = (pending.attempts || 0) + result.attempts;
+    pending.remainingStacks = result.remainingStacks ?? pending.remainingStacks ?? null;
+
+    if (result.cleared) {
+      state.pendingClears.delete(player);
+      state.lastEvent = {
+        player,
+        mode: pending.mode,
+        at: new Date().toISOString(),
+        ok: true,
+        cleared: true,
+        clearAttempts: pending.attempts,
+        note: "Pending death-drop inventory clear completed.",
+      };
+      state.lastError = null;
+    } else {
+      state.lastError = result.note || `Pending inventory clear for ${player} has not completed yet.`;
+    }
+  }
 };
 
 const monitorDeathDropsForServer = async (server) => {
@@ -1215,11 +1316,11 @@ const monitorDeathDropsForServer = async (server) => {
     const listResult = await sendServerCommand(server, i, ["list"]);
     const players = parseOnlinePlayers(listResult.stdout).filter((player) => /^[A-Za-z0-9_]{1,16}$/.test(player));
     state.trackedPlayers = players;
+    await processPendingInventoryClears(server, i, players, state);
 
     for (const player of players) {
       const previousScore = state.deaths.get(player);
       const previousSnapshot = state.snapshots.get(player);
-      const previousDeathLocation = state.lastDeathLocations.get(player) || "";
       const [score, snapshot] = await Promise.all([
         readJavaDeathScore(server, i, player),
         collectJavaPlayerSnapshot(server, i, player).catch(() => null),
@@ -1227,8 +1328,6 @@ const monitorDeathDropsForServer = async (server) => {
       const lastDeathLocation = snapshot?.raw?.lastDeathLocation || "";
       const deathScoreIncreased = previousScore != null && score > previousScore;
       const deathKey = `${player}:${score}`;
-      const virtualMode = ["drop", "chest"].includes(config.mode);
-      const deathLocationChanged = Boolean(lastDeathLocation && lastDeathLocation !== previousDeathLocation);
 
       state.deaths.set(player, score);
       if (lastDeathLocation) state.lastDeathLocations.set(player, lastDeathLocation);
@@ -1236,18 +1335,7 @@ const monitorDeathDropsForServer = async (server) => {
 
       if (deathScoreIncreased && !state.processedDeaths.has(deathKey)) {
         markProcessedDeath(state, deathKey);
-        if (virtualMode && !deathLocationChanged) {
-          state.lastEvent = {
-            player,
-            mode: config.mode,
-            at: new Date().toISOString(),
-            ok: false,
-            skipped: true,
-            note: "Skipped virtual death-drop action because LastDeathLocation did not change. This prevents duplicate item creation on stale death scores.",
-          };
-        } else {
-          await handleDeathDropEvent(server, i, player, deathEventSnapshot(config, previousSnapshot, snapshot), config, state);
-        }
+        await handleDeathDropEvent(server, i, player, deathEventSnapshot(config, previousSnapshot, snapshot), config, state);
       }
     }
 
