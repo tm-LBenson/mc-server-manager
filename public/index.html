@@ -997,6 +997,7 @@
               <button id="gameRefreshPlayersBtn" class="btn subtle" type="button" data-java-control>Refresh Players</button>
               <button id="openPlayerActionsBtn" class="btn" type="button" data-java-control>Actions</button>
               <button id="openBlockInventoryBtn" class="btn" type="button" data-java-control>Nearby Chests</button>
+              <button id="openHomeCommandBtn" class="btn" type="button" data-java-control>Home Command</button>
               <button id="openDeathDropsBtn" class="btn" type="button" data-java-control>Death Drops</button>
               <button id="openMobToolsBtn" class="btn" type="button" data-java-control>Mob Tools</button>
             </div>
@@ -1415,6 +1416,46 @@
       </div>
     </dialog>
 
+    <dialog id="homeCommandDialog" class="modal wide" aria-labelledby="homeCommandHeading">
+      <div class="modal-header">
+        <h2 id="homeCommandHeading">Home Command</h2>
+        <button class="btn subtle" type="button" data-close-dialog="homeCommandDialog">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label class="toggle-line" for="homeCommandEnabledInput">
+            <input id="homeCommandEnabledInput" type="checkbox" data-java-control />
+            Enabled
+          </label>
+          <div class="field grow">
+            <label for="homeCommandTextInput">Command</label>
+            <input id="homeCommandTextInput" autocomplete="off" value="/trigger home" readonly data-java-control />
+          </div>
+          <button id="homeCommandSaveBtn" class="btn primary" type="button" data-java-control>Save</button>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="homeCommandCooldownInput">Cooldown Seconds</label>
+            <input id="homeCommandCooldownInput" inputmode="numeric" value="0" data-java-control />
+          </div>
+          <label class="toggle-line" for="homeCommandCostEnabledInput">
+            <input id="homeCommandCostEnabledInput" type="checkbox" data-java-control />
+            Cost
+          </label>
+          <div class="field grow">
+            <label for="homeCommandCostItemInput">Cost Item</label>
+            <input id="homeCommandCostItemInput" autocomplete="off" value="ender_pearl" data-java-control />
+          </div>
+          <div class="field" style="width: 120px">
+            <label for="homeCommandCostCountInput">Count</label>
+            <input id="homeCommandCostCountInput" inputmode="numeric" value="1" data-java-control />
+          </div>
+        </div>
+        <div id="homeCommandMessage" class="status-line" role="status" aria-live="polite"></div>
+        <dl id="homeCommandStatus" class="details-grid"></dl>
+      </div>
+    </dialog>
+
     <dialog id="mobToolsDialog" class="modal wide" aria-labelledby="mobToolsHeading">
       <div class="modal-header">
         <h2 id="mobToolsHeading">Mob Tools</h2>
@@ -1516,6 +1557,16 @@
         gameUnavailable: document.getElementById("gameUnavailable"),
         happyGhastSpeedBtn: document.getElementById("happyGhastSpeedBtn"),
         happyGhastSpeedInput: document.getElementById("happyGhastSpeedInput"),
+        homeCommandCooldownInput: document.getElementById("homeCommandCooldownInput"),
+        homeCommandCostCountInput: document.getElementById("homeCommandCostCountInput"),
+        homeCommandCostEnabledInput: document.getElementById("homeCommandCostEnabledInput"),
+        homeCommandCostItemInput: document.getElementById("homeCommandCostItemInput"),
+        homeCommandDialog: document.getElementById("homeCommandDialog"),
+        homeCommandEnabledInput: document.getElementById("homeCommandEnabledInput"),
+        homeCommandMessage: document.getElementById("homeCommandMessage"),
+        homeCommandSaveBtn: document.getElementById("homeCommandSaveBtn"),
+        homeCommandStatus: document.getElementById("homeCommandStatus"),
+        homeCommandTextInput: document.getElementById("homeCommandTextInput"),
         imageMetric: document.getElementById("imageMetric"),
         hostPill: document.getElementById("hostPill"),
         loadContainersBtn: document.getElementById("loadContainersBtn"),
@@ -1541,6 +1592,7 @@
         noteZInput: document.getElementById("noteZInput"),
         openBlockInventoryBtn: document.getElementById("openBlockInventoryBtn"),
         openDeathDropsBtn: document.getElementById("openDeathDropsBtn"),
+        openHomeCommandBtn: document.getElementById("openHomeCommandBtn"),
         openMobToolsBtn: document.getElementById("openMobToolsBtn"),
         openPlayerActionsBtn: document.getElementById("openPlayerActionsBtn"),
         operationMessage: document.getElementById("operationMessage"),
@@ -1638,6 +1690,7 @@
         el.gameTeleportCoordsBtn,
         el.gameTeleportHomeBtn,
         el.gameTeleportPlayerBtn,
+        el.homeCommandSaveBtn,
         el.happyGhastSpeedBtn,
         ...document.querySelectorAll("[data-difficulty]"),
         ...document.querySelectorAll("[data-hardcore]"),
@@ -2716,6 +2769,87 @@
         });
       }
 
+      function homeCommandPayloadFromForm() {
+        return {
+          enabled: el.homeCommandEnabledInput.checked,
+          cooldownSeconds: el.homeCommandCooldownInput.value,
+          costEnabled: el.homeCommandCostEnabledInput.checked,
+          costItem: normalizeItemEntry(el.homeCommandCostItemInput.value || "ender_pearl"),
+          costCount: el.homeCommandCostCountInput.value,
+        };
+      }
+
+      function renderHomeCommand(data = {}) {
+        const config = data.config || state.info?.homeCommand || {};
+        el.homeCommandEnabledInput.checked = Boolean(config.enabled);
+        el.homeCommandTextInput.value = data.command || "/trigger home";
+        el.homeCommandCooldownInput.value = config.cooldownSeconds ?? 0;
+        el.homeCommandCostEnabledInput.checked = Boolean(config.costEnabled);
+        el.homeCommandCostItemInput.value = (config.costItem || "minecraft:ender_pearl").replace(/^minecraft:/, "");
+        el.homeCommandCostCountInput.value = config.costCount ?? 1;
+
+        const lastEvent = data.monitor?.lastEvent;
+        const rows = [
+          ["Available", data.available ? "Yes" : "No"],
+          ["Command", data.command || "/trigger home"],
+          ["Tracked Players", (data.monitor?.trackedPlayers || []).join(", ") || "-"],
+          ["Last Check", data.monitor?.lastCheck || "-"],
+          ["Last Event", lastEvent ? `${lastEvent.player} - ${lastEvent.ok ? "ok" : "error"}` : "-"],
+          ["Last Error", data.monitor?.lastError || "-"],
+        ];
+
+        el.homeCommandStatus.replaceChildren();
+        rows.forEach(([label, value]) => {
+          const dt = document.createElement("dt");
+          const dd = document.createElement("dd");
+          dt.textContent = label;
+          dd.textContent = value || "-";
+          el.homeCommandStatus.append(dt, dd);
+        });
+      }
+
+      async function loadHomeCommand() {
+        if (state.info?.edition !== "java") {
+          renderHomeCommand({ config: state.info?.homeCommand || {} });
+          setMessage(el.homeCommandMessage, "Java server required", "error");
+          return null;
+        }
+
+        return withBusy("home-command-load", async () => {
+          setMessage(el.homeCommandMessage, "Loading home command settings...");
+          try {
+            const data = await api(endpointWithTarget("/api/game/home-command"));
+            renderHomeCommand(data);
+            setMessage(el.homeCommandMessage, "Home command settings loaded", "success");
+            return data;
+          } catch (error) {
+            setMessage(el.homeCommandMessage, error.message, "error");
+            return null;
+          }
+        });
+      }
+
+      async function saveHomeCommand() {
+        const payload = homeCommandPayloadFromForm();
+        return withBusy("home-command-save", async () => {
+          setMessage(el.homeCommandMessage, "Saving home command settings...");
+          try {
+            const data = await post("/api/game/home-command", {
+              ...currentRequestTarget(),
+              config: payload,
+            });
+            state.info = { ...(state.info || {}), homeCommand: data.config };
+            const refreshed = await api(endpointWithTarget("/api/game/home-command")).catch(() => data);
+            renderHomeCommand(refreshed);
+            setMessage(el.homeCommandMessage, data.note || "Home command settings saved", "success");
+            return data;
+          } catch (error) {
+            setMessage(el.homeCommandMessage, error.message, "error");
+            return null;
+          }
+        });
+      }
+
       async function setHappyGhastSpeed() {
         return withBusy("happy-ghast-speed", async () => {
           setMessage(el.mobToolsMessage, "Applying Happy Ghast speed...");
@@ -2815,6 +2949,7 @@
         renderDetails(info);
         renderProperties(info);
         renderDeathDrops({ config: info.deathDrops || {} });
+        renderHomeCommand({ config: info.homeCommand || {} });
         renderGameAvailability(info);
         renderPlayerNotes();
         if (state.activeTab === "control") loadGameStatus({ inspectSelected: false });
@@ -2901,12 +3036,15 @@
       }
 
       function serverPayloadFromForm() {
+        const currentServer = getCurrentServer();
         return {
           id: state.editingServerId,
           label: el.serverLabelInput.value.trim(),
           type: el.serverTypeSelect.value,
           container: el.serverContainerInput.value.trim() || el.targetInput.value.trim(),
+          deathDrops: state.info?.deathDrops || currentServer?.deathDrops,
           host: el.serverHostInput.value.trim(),
+          homeCommand: state.info?.homeCommand || currentServer?.homeCommand,
           user: el.serverUserInput.value.trim(),
           port: Number.parseInt(el.serverPortInput.value, 10) || 22,
           identityFile: el.serverIdentityInput.value.trim(),
@@ -3323,7 +3461,7 @@
       document.querySelectorAll("[data-close-dialog]").forEach((button) => {
         button.addEventListener("click", () => closeDialog(document.getElementById(button.dataset.closeDialog)));
       });
-      [el.playerActionsDialog, el.blockInventoryDialog, el.deathDropsDialog, el.mobToolsDialog].forEach((dialog) => {
+      [el.playerActionsDialog, el.blockInventoryDialog, el.deathDropsDialog, el.homeCommandDialog, el.mobToolsDialog].forEach((dialog) => {
         dialog.addEventListener("click", (event) => {
           if (event.target === dialog) closeDialog(dialog);
         });
@@ -3389,6 +3527,10 @@
         openDialog(el.deathDropsDialog);
         loadDeathDrops();
       });
+      el.openHomeCommandBtn.addEventListener("click", () => {
+        openDialog(el.homeCommandDialog);
+        loadHomeCommand();
+      });
       el.openMobToolsBtn.addEventListener("click", () => openDialog(el.mobToolsDialog));
       el.gameRefreshPlayersBtn.addEventListener("click", () => loadGameStatus({ inspectSelected: true }));
       el.gameLoadPlayerBtn.addEventListener("click", loadPlayerDetails);
@@ -3431,6 +3573,7 @@
       );
       el.blockInventoryBtn.addEventListener("click", inspectNearbyChests);
       el.deathDropsSaveBtn.addEventListener("click", saveDeathDrops);
+      el.homeCommandSaveBtn.addEventListener("click", saveHomeCommand);
       el.happyGhastSpeedBtn.addEventListener("click", setHappyGhastSpeed);
       el.logsViewRawBtn.addEventListener("click", () => showLogView("raw"));
       el.logsViewEventsBtn.addEventListener("click", () => showLogView("events"));

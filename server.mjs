@@ -44,6 +44,20 @@ const DEFAULT_DEATH_DROPS = {
   verticalMotion: 0.05,
 };
 
+const DEFAULT_HOME_COMMAND = {
+  enabled: false,
+  cooldownSeconds: 0,
+  costEnabled: false,
+  costItem: "minecraft:ender_pearl",
+  costCount: 1,
+};
+
+const normalizeItemIdSafe = (value, fallback = "minecraft:ender_pearl") => {
+  const item = String(value || fallback).trim().toLowerCase();
+  if (!/^(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+$/.test(item)) return fallback;
+  return item.includes(":") ? item : `minecraft:${item}`;
+};
+
 const normalizeDeathDropsConfig = (value = {}) => {
   const mode = ["tighten", "keep", "drop", "chest"].includes(value.mode) ? value.mode : DEFAULT_DEATH_DROPS.mode;
 
@@ -55,6 +69,14 @@ const normalizeDeathDropsConfig = (value = {}) => {
     verticalMotion: boundedNumber(value.verticalMotion, DEFAULT_DEATH_DROPS.verticalMotion, 0, 1),
   };
 };
+
+const normalizeHomeCommandConfig = (value = {}) => ({
+  enabled: value.enabled === true || value.enabled === "true",
+  cooldownSeconds: Math.round(boundedNumber(value.cooldownSeconds, DEFAULT_HOME_COMMAND.cooldownSeconds, 0, 86400)),
+  costEnabled: value.costEnabled === true || value.costEnabled === "true",
+  costItem: normalizeItemIdSafe(value.costItem || DEFAULT_HOME_COMMAND.costItem),
+  costCount: Math.round(boundedNumber(value.costCount, DEFAULT_HOME_COMMAND.costCount, 1, 64)),
+});
 
 const requestError = (message, status = 400) => {
   const error = new Error(message);
@@ -91,6 +113,7 @@ const normalizeServer = (server = {}, index = 0) => {
     type,
     container,
     deathDrops: normalizeDeathDropsConfig(server.deathDrops),
+    homeCommand: normalizeHomeCommandConfig(server.homeCommand),
   };
 
   if (type === "ssh") {
@@ -112,6 +135,7 @@ const publicServer = (server) => ({
   type: server.type,
   container: server.container,
   deathDrops: normalizeDeathDropsConfig(server.deathDrops),
+  homeCommand: normalizeHomeCommandConfig(server.homeCommand),
   host: server.host || "",
   user: server.user || "",
   port: server.port || null,
@@ -503,6 +527,119 @@ const parsePosition = (stdout = "") => {
   return values.length === 3 ? { x: values[0], y: values[1], z: values[2] } : null;
 };
 
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const parseSnbtNumberField = (payload = "", field) => {
+  const pattern = new RegExp(`(?:^|[,\\s{])["']?${escapeRegExp(field)}["']?\\s*:\\s*(-?(?:\\d+\\.?\\d*|\\.\\d+))(?:[bBsSlLfFdD])?`, "i");
+  const match = String(payload || "").match(pattern);
+  if (!match) return null;
+  const value = Number.parseFloat(match[1]);
+  return Number.isFinite(value) ? value : null;
+};
+
+const parseSnbtStringField = (payload = "", field) => {
+  const text = String(payload || "");
+  const quoted = text.match(new RegExp(`(?:^|[,\\s{])["']?${escapeRegExp(field)}["']?\\s*:\\s*"([^"]+)"`, "i"));
+  if (quoted) return quoted[1];
+  const unquoted = text.match(new RegExp(`(?:^|[,\\s{])["']?${escapeRegExp(field)}["']?\\s*:\\s*([a-z0-9_.-]+:[a-z0-9_./-]+)`, "i"));
+  return unquoted ? unquoted[1] : null;
+};
+
+const parseSnbtIntListField = (payload = "", field) => {
+  const pattern = new RegExp(
+    `(?:^|[,\\s{])["']?${escapeRegExp(field)}["']?\\s*:\\s*\\[\\s*(?:[IiLlSsBb];)?\\s*(-?\\d+)\\s*,\\s*(-?\\d+)\\s*,\\s*(-?\\d+)\\s*\\]`,
+    "i",
+  );
+  const match = String(payload || "").match(pattern);
+  if (!match) return null;
+  const values = match.slice(1, 4).map((value) => Number.parseInt(value, 10));
+  return values.every((value) => Number.isFinite(value)) ? { x: values[0], y: values[1], z: values[2] } : null;
+};
+
+const extractNamedCompound = (payload = "", fieldNames = []) => {
+  const text = String(payload || "");
+
+  for (const field of fieldNames) {
+    const pattern = new RegExp(`(?:^|[,\\s{])["']?${escapeRegExp(field)}["']?\\s*:\\s*\\{`, "i");
+    const match = pattern.exec(text);
+    if (!match) continue;
+
+    const openIndex = text.indexOf("{", match.index);
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = openIndex; index < text.length; index += 1) {
+      const char = text[index];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === "\\") {
+          escaped = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+      } else if (char === "{") {
+        depth += 1;
+      } else if (char === "}") {
+        depth -= 1;
+        if (depth === 0) return text.slice(openIndex, index + 1);
+      }
+    }
+  }
+
+  return "";
+};
+
+const normalizeDimensionId = (value) => {
+  const dimension = String(value || "").trim().replace(/^["']|["']$/g, "");
+  return /^[a-z0-9_.-]+:[a-z0-9_./-]+$/i.test(dimension) ? dimension.toLowerCase() : "minecraft:overworld";
+};
+
+const spawnFromValues = (x, y, z, dimension) => {
+  if (![x, y, z].every((value) => Number.isFinite(value))) return null;
+  return { x, y, z, dimension: normalizeDimensionId(dimension) };
+};
+
+const parseJavaSpawnPayload = (stdout = "") => {
+  const payload = dataPayload(stdout);
+  const legacySpawn = spawnFromValues(
+    parseSnbtNumberField(payload, "SpawnX") ?? parseSnbtNumberField(payload, "RespawnX") ?? parseSnbtNumberField(payload, "spawn_x"),
+    parseSnbtNumberField(payload, "SpawnY") ?? parseSnbtNumberField(payload, "RespawnY") ?? parseSnbtNumberField(payload, "spawn_y"),
+    parseSnbtNumberField(payload, "SpawnZ") ?? parseSnbtNumberField(payload, "RespawnZ") ?? parseSnbtNumberField(payload, "spawn_z"),
+    parseSnbtStringField(payload, "SpawnDimension") || parseSnbtStringField(payload, "RespawnDimension"),
+  );
+  if (legacySpawn) return legacySpawn;
+
+  const compound = extractNamedCompound(payload, ["respawn", "Respawn", "respawn_position", "RespawnPosition", "spawn_point", "SpawnPoint"]);
+  if (!compound) return null;
+
+  const pos =
+    parseSnbtIntListField(compound, "pos") ||
+    parseSnbtIntListField(compound, "Pos") ||
+    spawnFromValues(
+      parseSnbtNumberField(compound, "x") ?? parseSnbtNumberField(compound, "X"),
+      parseSnbtNumberField(compound, "y") ?? parseSnbtNumberField(compound, "Y"),
+      parseSnbtNumberField(compound, "z") ?? parseSnbtNumberField(compound, "Z"),
+      null,
+    );
+
+  if (!pos) return null;
+
+  return {
+    x: pos.x,
+    y: pos.y,
+    z: pos.z,
+    dimension: normalizeDimensionId(parseSnbtStringField(compound, "dimension") || parseSnbtStringField(compound, "Dimension")),
+  };
+};
+
 const parseOnlinePlayers = (stdout = "") => {
   const text = String(stdout || "").trim();
   const match = text.match(/players online:\s*(.*)$/i);
@@ -594,7 +731,7 @@ const normalizeChestScanRange = (value) => {
 const normalizeItemId = (value) => {
   const item = String(value || "").trim().toLowerCase();
   if (!/^(?:[a-z0-9_.-]+:)?[a-z0-9_./-]+$/.test(item)) throw requestError("item must be a valid item id");
-  return item.includes(":") ? item : `minecraft:${item}`;
+  return normalizeItemIdSafe(item);
 };
 
 const normalizeCount = (value, fallback = 1, max = 640) => {
@@ -652,16 +789,19 @@ const readJavaSpawn = async (server, i, player) => {
   ]);
 
   const valueFrom = (result) => (result.status === "fulfilled" ? result.value.stdout || "" : "");
-  const x = parseDataNumber(valueFrom(xResult));
-  const y = parseDataNumber(valueFrom(yResult));
-  const z = parseDataNumber(valueFrom(zResult));
-  const dimension = parseDataString(valueFrom(dimensionResult)) || "minecraft:overworld";
+  const directSpawn = spawnFromValues(
+    parseDataNumber(valueFrom(xResult)),
+    parseDataNumber(valueFrom(yResult)),
+    parseDataNumber(valueFrom(zResult)),
+    parseDataString(valueFrom(dimensionResult)),
+  );
+  if (directSpawn) return directSpawn;
 
-  if (![x, y, z].every((value) => Number.isFinite(value))) {
-    throw requestError(`${player} does not have a bed spawn recorded.`);
-  }
+  const fullEntity = await sendServerCommand(server, i, ["data", "get", "entity", player]).catch(() => null);
+  const parsedSpawn = parseJavaSpawnPayload(fullEntity?.stdout || "");
+  if (parsedSpawn) return parsedSpawn;
 
-  return { x, y, z, dimension };
+  throw requestError(`${player} does not have a bed or respawn anchor spawn recorded. Sleep in a bed or use a respawn anchor, then try again.`);
 };
 
 const deathDropMonitorKey = (server) => `${server.type}:${server.host || "local"}:${server.id}:${server.container}`;
@@ -708,6 +848,45 @@ const publicDeathDropMonitor = (server) => {
   };
 };
 
+const HOME_OBJECTIVE = "home";
+const homeCommandMonitors = new Map();
+
+const getHomeCommandMonitor = (server) => {
+  const key = deathDropMonitorKey(server);
+  if (!homeCommandMonitors.has(key)) {
+    homeCommandMonitors.set(key, {
+      objectiveReady: false,
+      lastCheck: null,
+      lastError: null,
+      lastEvent: null,
+      lastUse: new Map(),
+      trackedPlayers: [],
+    });
+  }
+  return homeCommandMonitors.get(key);
+};
+
+const publicHomeCommandMonitor = (server) => {
+  const state = homeCommandMonitors.get(deathDropMonitorKey(server));
+  if (!state) {
+    return {
+      active: false,
+      lastCheck: null,
+      lastError: null,
+      lastEvent: null,
+      trackedPlayers: [],
+    };
+  }
+
+  return {
+    active: true,
+    lastCheck: state.lastCheck,
+    lastError: state.lastError,
+    lastEvent: state.lastEvent,
+    trackedPlayers: state.trackedPlayers || [],
+  };
+};
+
 const markProcessedDeath = (state, key) => {
   state.processedDeaths.add(key);
   if (state.processedDeaths.size > 500) {
@@ -743,6 +922,39 @@ const ensureDeathScoreObjective = async (server, i, state) => {
     if (!/already exists|exists already/i.test(message)) throw error;
   }
   state.objectiveReady = true;
+};
+
+const ensureHomeTriggerObjective = async (server, i, state) => {
+  if (state.objectiveReady) return;
+  try {
+    await sendServerCommand(server, i, ["scoreboard", "objectives", "add", HOME_OBJECTIVE, "trigger", "Home"]);
+  } catch (error) {
+    const message = String(error.message || error);
+    if (!/already exists|exists already/i.test(message)) throw error;
+  }
+  state.objectiveReady = true;
+};
+
+const readTriggerScore = async (server, i, player, objective) => {
+  try {
+    const result = await sendServerCommand(server, i, ["scoreboard", "players", "get", player, objective]);
+    return parseDeathScore(result.stdout);
+  } catch (error) {
+    const message = String(error.message || error);
+    if (/has no score|can't get value|cannot get value/i.test(message)) return 0;
+    throw error;
+  }
+};
+
+const tellPlayer = async (server, i, player, text, color = "gold") => {
+  await sendServerCommand(server, i, [
+    "tellraw",
+    player,
+    JSON.stringify({
+      text,
+      color,
+    }),
+  ]).catch(() => null);
 };
 
 const readJavaGameRule = async (server, i, rule) => {
@@ -1291,6 +1503,110 @@ const processPendingInventoryClears = async (server, i, players, state) => {
   }
 };
 
+const consumeHomeCommandCost = async (server, i, player, config) => {
+  if (!config.costEnabled) return { ok: true, consumed: false };
+
+  const result = await sendServerCommand(server, i, ["clear", player, config.costItem, String(config.costCount)]).catch((error) => ({
+    stdout: "",
+    error: String(error.message || error),
+  }));
+
+  if (result.error) {
+    return { ok: false, consumed: false, note: result.error };
+  }
+
+  const stdout = String(result.stdout || "");
+  const count = Number.parseInt(stdout.match(/\b(\d+)\s+item/i)?.[1] || "", 10);
+  if (/no items? were found|found no items?/i.test(stdout) || count === 0) {
+    return { ok: false, consumed: false, note: `Requires ${config.costCount} ${config.costItem}.` };
+  }
+
+  return { ok: true, consumed: true, stdout };
+};
+
+const handleHomeCommandRequest = async (server, i, player, config, state) => {
+  const now = Date.now();
+  const lastUse = state.lastUse.get(player) || 0;
+  const cooldownMs = config.cooldownSeconds * 1000;
+  const event = {
+    player,
+    at: new Date(now).toISOString(),
+    ok: false,
+  };
+
+  try {
+    if (cooldownMs > 0 && now - lastUse < cooldownMs) {
+      const remaining = Math.ceil((cooldownMs - (now - lastUse)) / 1000);
+      event.cooldownRemaining = remaining;
+      event.note = `Home is on cooldown for ${remaining} more second${remaining === 1 ? "" : "s"}.`;
+      await tellPlayer(server, i, player, event.note, "red");
+      state.lastEvent = event;
+      return;
+    }
+
+    const spawn = await readJavaSpawn(server, i, player);
+    const cost = await consumeHomeCommandCost(server, i, player, config);
+    if (!cost.ok) {
+      event.note = cost.note || "Home cost could not be paid.";
+      await tellPlayer(server, i, player, event.note, "red");
+      state.lastEvent = event;
+      return;
+    }
+
+    const command = ["execute", "in", spawn.dimension, "run", "tp", player, String(spawn.x), String(spawn.y), String(spawn.z)];
+    const result = await sendServerCommand(server, i, command);
+    state.lastUse.set(player, now);
+
+    event.ok = true;
+    event.consumedCost = cost.consumed;
+    event.command = command.join(" ");
+    event.stdout = result.stdout || "";
+    event.position = spawn;
+    state.lastError = null;
+    await tellPlayer(server, i, player, "Teleported home.", "gold");
+  } catch (error) {
+    event.error = String(error.message || error);
+    state.lastError = event.error;
+    await tellPlayer(server, i, player, event.error, "red");
+  } finally {
+    await sendServerCommand(server, i, ["scoreboard", "players", "set", player, HOME_OBJECTIVE, "0"]).catch(() => null);
+    await sendServerCommand(server, i, ["scoreboard", "players", "enable", player, HOME_OBJECTIVE]).catch(() => null);
+    state.lastEvent = event;
+  }
+};
+
+const monitorHomeCommandForServer = async (server) => {
+  const config = normalizeHomeCommandConfig(server.homeCommand);
+  if (!config.enabled) return;
+
+  const state = getHomeCommandMonitor(server);
+  state.lastCheck = new Date().toISOString();
+
+  try {
+    const { i, edition } = await getContainerMeta(server);
+    if (edition !== "java" || !i.State?.Running) {
+      state.trackedPlayers = [];
+      state.lastError = edition === "java" ? "Java server is not running." : "Home command is Java-only.";
+      return;
+    }
+
+    await ensureHomeTriggerObjective(server, i, state);
+    const listResult = await sendServerCommand(server, i, ["list"]);
+    const players = parseOnlinePlayers(listResult.stdout).filter((player) => /^[A-Za-z0-9_]{1,16}$/.test(player));
+    state.trackedPlayers = players;
+    await sendServerCommand(server, i, ["scoreboard", "players", "enable", "@a", HOME_OBJECTIVE]).catch(() => null);
+
+    for (const player of players) {
+      const score = await readTriggerScore(server, i, player, HOME_OBJECTIVE);
+      if (score > 0) await handleHomeCommandRequest(server, i, player, config, state);
+    }
+
+    if (!state.lastError || /Java server is not running|Java-only/i.test(state.lastError)) state.lastError = null;
+  } catch (error) {
+    state.lastError = String(error.message || error);
+  }
+};
+
 const monitorDeathDropsForServer = async (server) => {
   const config = normalizeDeathDropsConfig(server.deathDrops);
   if (!config.enabled) return;
@@ -1346,6 +1662,7 @@ const monitorDeathDropsForServer = async (server) => {
 };
 
 let deathDropMonitorRunning = false;
+let homeCommandMonitorRunning = false;
 
 const runDeathDropMonitors = async () => {
   if (deathDropMonitorRunning) return;
@@ -1356,6 +1673,18 @@ const runDeathDropMonitors = async () => {
     }
   } finally {
     deathDropMonitorRunning = false;
+  }
+};
+
+const runHomeCommandMonitors = async () => {
+  if (homeCommandMonitorRunning) return;
+  homeCommandMonitorRunning = true;
+  try {
+    for (const server of SERVERS) {
+      await monitorHomeCommandForServer(server);
+    }
+  } finally {
+    homeCommandMonitorRunning = false;
   }
 };
 
@@ -1830,6 +2159,7 @@ app.get("/api/info", async (req, res) => {
       envHardcore: env.HARDCORE ?? null,
       envOverrideServerProperties: env.OVERRIDE_SERVER_PROPERTIES ?? null,
       deathDrops: normalizeDeathDropsConfig(server.deathDrops),
+      homeCommand: normalizeHomeCommandConfig(server.homeCommand),
       fileDifficulty: properties.difficulty || null,
       filePvp: properties.pvp || null,
       livePvp: livePvp?.value ?? null,
@@ -2346,6 +2676,69 @@ app.post("/api/game/death-drops", async (req, res) => {
   }
 });
 
+app.get("/api/game/home-command", async (req, res) => {
+  try {
+    const server = resolveServer(req.query);
+    const config = normalizeHomeCommandConfig(server.homeCommand);
+    const response = {
+      ok: true,
+      config,
+      command: `/${HOME_OBJECTIVE === "home" ? "trigger home" : `trigger ${HOME_OBJECTIVE}`}`,
+      monitor: publicHomeCommandMonitor(server),
+      available: false,
+      running: false,
+      edition: "unknown",
+    };
+
+    const { i, edition } = await getContainerMeta(server);
+    response.edition = edition;
+    response.running = !!i.State?.Running;
+    response.available = edition === "java" && response.running;
+
+    res.json(response);
+  } catch (error) {
+    res.status(javaErrorStatus(error)).json({ error: String(error.message || error) });
+  }
+});
+
+app.post("/api/game/home-command", async (req, res) => {
+  try {
+    const server = resolveServer(req.body);
+    const managed = findServer(server.id);
+    if (!managed) return res.status(400).json({ error: "Save this target before enabling the home command." });
+
+    const config = normalizeHomeCommandConfig(req.body?.config || req.body || {});
+    const { i, edition } = await getContainerMeta(server);
+    if (edition !== "java") {
+      return res.status(400).json({ error: "Home command is currently available for Java servers only." });
+    }
+
+    let note = "Home command settings saved.";
+    if (i.State?.Running && config.enabled) {
+      const state = getHomeCommandMonitor(server);
+      await ensureHomeTriggerObjective(server, i, state);
+      await sendServerCommand(server, i, ["scoreboard", "players", "enable", "@a", HOME_OBJECTIVE]).catch(() => null);
+      note = `Home command settings saved. Players can use /trigger ${HOME_OBJECTIVE}.`;
+    } else if (config.enabled) {
+      note = "Home command settings saved. They will apply when the Java server is running.";
+    }
+
+    managed.homeCommand = config;
+    server.homeCommand = config;
+    await saveServers();
+
+    res.json({
+      ok: true,
+      config,
+      command: `/trigger ${HOME_OBJECTIVE}`,
+      note,
+      monitor: publicHomeCommandMonitor(server),
+    });
+  } catch (error) {
+    res.status(javaErrorStatus(error)).json({ error: String(error.message || error) });
+  }
+});
+
 app.post("/api/game/happy-ghast-speed", async (req, res) => {
   try {
     const server = resolveServer(req.body);
@@ -2472,8 +2865,8 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
 const deathDropTimer = setInterval(() => {
-  runDeathDropMonitors().catch((error) => {
-    console.warn(`Death drop monitor failed: ${String(error.message || error)}`);
+  Promise.all([runDeathDropMonitors(), runHomeCommandMonitors()]).catch((error) => {
+    console.warn(`Server monitor failed: ${String(error.message || error)}`);
   });
 }, normalizeTimeout(DEATH_DROP_POLL_MS, 2000));
 deathDropTimer.unref?.();
